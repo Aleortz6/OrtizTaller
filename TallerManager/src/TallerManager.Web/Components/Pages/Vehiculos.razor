@@ -1,0 +1,271 @@
+@page "/vehiculos"
+@attribute [Authorize(Roles = "Administrador,Secretaria,Mecanico")]
+
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.EntityFrameworkCore
+@using TallerManager.Domain.Entities
+@using TallerManager.Infrastructure.Data
+
+@inject IDbContextFactory<TallerManagerDbContext> DbFactory
+
+<PageTitle>Vehículos</PageTitle>
+
+<div class="flex flex-col md:flex-row md:items-center justify-between mb-xl gap-md">
+    <div>
+        <h1 class="font-display-lg text-display-lg text-on-surface mb-xs">Vehículos</h1>
+        <p class="font-body-md text-body-md text-secondary">Consulte y registre los vehículos de sus clientes.</p>
+    </div>
+    <div class="flex flex-wrap items-center gap-md">
+        <div class="relative w-full md:w-64">
+            <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-lg">search</span>
+            <input class="w-full pl-10 pr-4 py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary shadow-sm"
+                   placeholder="Buscar por placas, marca o modelo..."
+                   @bind="SearchTerm" @bind:event="oninput" @bind:after="BuscarAsync" />
+        </div>
+        <button class="flex items-center gap-sm px-md py-2 bg-primary-container text-on-primary-container rounded-lg font-body-md text-body-md font-semibold hover:opacity-90 shadow-sm transition-opacity"
+                @onclick="AbrirModalNuevo">
+            <span class="material-symbols-outlined text-[20px]">add</span>
+            Nuevo Vehículo
+        </button>
+    </div>
+</div>
+
+<div class="bg-surface border border-outline-variant rounded-xl shadow-sm overflow-hidden flex flex-col">
+    <div class="overflow-x-auto">
+        @if (ListaVehiculos is null)
+        {
+            <p class="p-lg text-body-md text-secondary">Cargando...</p>
+        }
+        else if (!ListaVehiculos.Any())
+        {
+            <p class="p-lg text-body-md text-secondary">No hay vehículos registrados todavía.</p>
+        }
+        else
+        {
+            <table class="w-full text-left border-collapse">
+                <thead class="bg-surface-container-low border-b border-outline-variant">
+                    <tr>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary whitespace-nowrap">Vehículo</th>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary whitespace-nowrap">Cliente</th>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary whitespace-nowrap">Placas</th>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary whitespace-nowrap">VIN</th>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary whitespace-nowrap">Kilometraje</th>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary whitespace-nowrap">Estado</th>
+                    </tr>
+                </thead>
+                <tbody class="font-body-md text-body-md text-on-surface divide-y divide-outline-variant bg-surface">
+                    @foreach (var v in ListaVehiculos)
+                    {
+                        <tr class="hover:bg-surface-container-lowest transition-colors">
+                            <td class="px-lg py-md">
+                                <div class="flex flex-col">
+                                    <span class="font-semibold text-on-surface">@v.Marca @v.Modelo</span>
+                                    <span class="font-data-mono text-data-mono text-secondary text-[12px]">@(v.Anio?.ToString() ?? "—") @(!string.IsNullOrWhiteSpace(v.Color) ? $"· {v.Color}" : "")</span>
+                                </div>
+                            </td>
+                            <td class="px-lg py-md text-on-surface-variant">@(v.Cliente?.Nombre ?? "—")</td>
+                            <td class="px-lg py-md font-data-mono text-data-mono text-on-surface font-bold">@(v.Placas ?? "—")</td>
+                            <td class="px-lg py-md font-data-mono text-data-mono text-on-surface-variant">@(v.Vin ?? "—")</td>
+                            <td class="px-lg py-md font-data-mono text-data-mono text-on-surface-variant">@(v.Kilometraje?.ToString("N0") ?? "—") km</td>
+                            <td class="px-lg py-md">
+                                @if (v.Activo)
+                                {
+                                    <span class="inline-flex items-center gap-xs px-2 py-1 rounded-full bg-primary-fixed text-primary font-label-caps text-label-caps">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
+                                        ACTIVO
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="inline-flex items-center gap-xs px-2 py-1 rounded-full bg-surface-variant text-on-surface-variant font-label-caps text-label-caps">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-outline"></span>
+                                        INACTIVO
+                                    </span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+</div>
+
+@if (MostrarModal)
+{
+    <div class="fixed inset-0 bg-inverse-surface/50 z-[100] flex items-center justify-center p-md">
+        <div class="bg-surface rounded-xl shadow-lg w-full max-w-lg flex flex-col max-h-[90vh]">
+            <div class="flex items-center justify-between px-lg py-md border-b border-outline-variant">
+                <h2 class="font-headline-sm text-headline-sm text-on-surface">Nuevo vehículo</h2>
+                <button class="text-on-surface-variant hover:bg-surface-container rounded-full p-1 transition-colors" @onclick="CerrarModal">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <EditForm Model="NewVehiculo" OnValidSubmit="GuardarAsync">
+                <DataAnnotationsValidator />
+                <div class="px-lg py-md flex flex-col gap-md overflow-y-auto">
+                    <div>
+                        <label class="font-label-caps text-label-caps text-secondary block mb-xs">Cliente *</label>
+                        <InputSelect class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                     @bind-Value="NewVehiculo.ClienteId">
+                            <option value="0">Selecciona un cliente...</option>
+                            @if (Clientes is not null)
+                            {
+                                @foreach (var c in Clientes)
+                                {
+                                    <option value="@c.Id">@c.Nombre</option>
+                                }
+                            }
+                        </InputSelect>
+                    </div>
+                    <div class="grid grid-cols-2 gap-md">
+                        <div>
+                            <label class="font-label-caps text-label-caps text-secondary block mb-xs">Marca *</label>
+                            <InputText class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                       @bind-Value="NewVehiculo.Marca" />
+                        </div>
+                        <div>
+                            <label class="font-label-caps text-label-caps text-secondary block mb-xs">Modelo *</label>
+                            <InputText class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                       @bind-Value="NewVehiculo.Modelo" />
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-md">
+                        <div>
+                            <label class="font-label-caps text-label-caps text-secondary block mb-xs">Año</label>
+                            <InputNumber class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                         @bind-Value="NewVehiculo.Anio" />
+                        </div>
+                        <div>
+                            <label class="font-label-caps text-label-caps text-secondary block mb-xs">Color</label>
+                            <InputText class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                       @bind-Value="NewVehiculo.Color" />
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-md">
+                        <div>
+                            <label class="font-label-caps text-label-caps text-secondary block mb-xs">Placas</label>
+                            <InputText class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                       @bind-Value="NewVehiculo.Placas" />
+                        </div>
+                        <div>
+                            <label class="font-label-caps text-label-caps text-secondary block mb-xs">Kilometraje</label>
+                            <InputNumber class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                         @bind-Value="NewVehiculo.Kilometraje" />
+                        </div>
+                    </div>
+                    <div>
+                        <label class="font-label-caps text-label-caps text-secondary block mb-xs">VIN / NIV</label>
+                        <InputText class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-data-mono text-data-mono text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                   @bind-Value="NewVehiculo.Vin" />
+                    </div>
+                    <div class="grid grid-cols-2 gap-md">
+                        <div>
+                            <label class="font-label-caps text-label-caps text-secondary block mb-xs">Transmisión</label>
+                            <InputText class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                       @bind-Value="NewVehiculo.Transmision" />
+                        </div>
+                        <div>
+                            <label class="font-label-caps text-label-caps text-secondary block mb-xs">Motor</label>
+                            <InputText class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                       @bind-Value="NewVehiculo.Motor" />
+                        </div>
+                    </div>
+                    <div>
+                        <label class="font-label-caps text-label-caps text-secondary block mb-xs">Notas</label>
+                        <InputTextArea class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                       @bind-Value="NewVehiculo.Notas" />
+                    </div>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(ErrorMensaje))
+{
+    <p class="text-error text-body-sm px-lg">@ErrorMensaje</p>
+}
+                <div class="flex justify-end gap-sm px-lg py-md border-t border-outline-variant">
+                    <button type="button" class="px-md py-2 rounded-lg font-body-md text-body-md text-on-surface-variant hover:bg-surface-container transition-colors" @onclick="CerrarModal">
+                        Cancelar
+                    </button>
+                    <button type="submit" class="px-md py-2 bg-primary-container text-on-primary-container rounded-lg font-body-md text-body-md font-semibold hover:opacity-90 shadow-sm transition-opacity">
+                        Guardar
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Vehiculo>? ListaVehiculos;
+    private List<Cliente>? Clientes;
+    private string SearchTerm = string.Empty;
+    private bool MostrarModal = false;
+    private Vehiculo NewVehiculo = new();
+    private string? ErrorMensaje;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarAsync();
+    }
+
+    private async Task CargarAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        var query = db.Vehiculos
+            .Include(v => v.Cliente)
+            .Where(v => v.Activo)
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(SearchTerm))
+        {
+            var term = SearchTerm.Trim();
+            query = query.Where(v =>
+                (v.Placas != null && v.Placas.Contains(term)) ||
+                v.Marca.Contains(term) ||
+                v.Modelo.Contains(term));
+        }
+
+        ListaVehiculos = await query.OrderByDescending(v => v.FechaRegistro).ToListAsync();
+    }
+
+    private async Task BuscarAsync() => await CargarAsync();
+
+    private async Task AbrirModalNuevo()
+    {
+        NewVehiculo = new Vehiculo();
+        ErrorMensaje = null;
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        Clientes = await db.Clientes.Where(c => c.Activo).OrderBy(c => c.Nombre).ToListAsync();
+
+        MostrarModal = true;
+    }
+
+    private void CerrarModal() => MostrarModal = false;
+
+    private async Task GuardarAsync()
+    {
+        if (NewVehiculo.ClienteId <= 0)
+        {
+            ErrorMensaje = "Selecciona un cliente.";
+            return;
+        }
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        var taller = await db.Talleres
+            .OrderBy(t => t.FechaCreacion)
+            .FirstOrDefaultAsync();
+
+        if (taller is null) return;
+
+        NewVehiculo.TallerId = taller.Id;
+
+        db.Vehiculos.Add(NewVehiculo);
+        await db.SaveChangesAsync();
+
+        MostrarModal = false;
+        await CargarAsync();
+    }
+}

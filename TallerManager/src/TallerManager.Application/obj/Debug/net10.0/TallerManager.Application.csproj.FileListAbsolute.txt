@@ -1,0 +1,16 @@
+C:\Users\USER\Desktop\TallerManager\TallerManager\src\TallerManager.Application\bin\Debug\net10.0\TallerManager.Application.deps.json
+C:\Users\USER\Desktop\TallerManager\TallerManager\src\TallerManager.Application\bin\Debug\net10.0\TallerManager.Application.dll
+C:\Users\USER\Desktop\TallerManager\TallerManager\src\TallerManager.Application\bin\Debug\net10.0\TallerManager.Application.pdb
+C:\Users\USER\Desktop\TallerManager\TallerManager\src\TallerManager.Application\bin\Debug\net10.0\TallerManager.Domain.dll
+C:\Users\USER\Desktop\TallerManager\TallerManager\src\TallerManager.Application\bin\Debug\net10.0\TallerManager.Domain.pdb
+C:\Users\USER\Desktop\TallerManager\TallerManager\src\TallerManager.Application\obj\Debug\net10.0\TallerManager.Application.csproj.AssemblyReference.cache
+C:\Users\USER\Desktop\TallerManager\TallerManager\src\TallerManager.Application\obj\Debug\net10.0\TallerManager.Application.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\USER\Desktop\TallerManager\TallerManager\src\TallerManager.Application\obj\Debug\net10.0\TallerManager.Application.AssemblyInfoInputs.cache
+C:\Users\USER\Desktop\TallerManager\TallerManager\src\TallerManager.Application\obj\Debug\net10.0\TallerManager.Application.AssemblyInfo.cs
+C:\Users\USER\Desktop\TallerManager\TallerManager\src\TallerManager.Application\obj\Debug\net10.0\TallerManager.Application.csproj.CoreCompileInputs.cache
+C:\Users\USER\Desktop\TallerManager\TallerManager\src\TallerManager.Application\obj\Debug\net10.0\TallerMa.8DA330C3.Up2Date
+C:\Users\USER\Desktop\TallerManager\TallerManager\src\TallerManager.Application\obj\Debug\net10.0\TallerManager.Application.dll
+C:\Users\USER\Desktop\TallerManager\TallerManager\src\TallerManager.Application\obj\Debug\net10.0\refint\TallerManager.Application.dll
+C:\Users\USER\Desktop\TallerManager\TallerManager\src\TallerManager.Application\obj\Debug\net10.0\TallerManager.Application.pdb
+C:\Users\USER\Desktop\TallerManager\TallerManager\src\TallerManager.Application\obj\Debug\net10.0\ref\TallerManager.Application.dll
+C:\Users\USER\Desktop\TallerManager\TallerManager\src\TallerManager.Application\obj\Debug\net10.0\TallerManager.Application.sourcelink.json

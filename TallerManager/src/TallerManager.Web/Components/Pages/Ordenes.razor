@@ -1,0 +1,149 @@
+@page "/ordenes"
+@attribute [Authorize(Roles = "Administrador,Secretaria,Mecanico")]
+
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using TallerManager.Domain.Entities
+@using TallerManager.Infrastructure.Data
+
+@inject IDbContextFactory<TallerManagerDbContext> DbFactory
+@inject NavigationManager Nav
+
+<PageTitle>Órdenes de Servicio</PageTitle>
+
+<div class="flex flex-col md:flex-row md:items-center justify-between mb-xl gap-md">
+    <div>
+        <h1 class="font-display-lg text-display-lg text-on-surface mb-xs">Órdenes de Servicio</h1>
+        <p class="font-body-md text-body-md text-secondary">Consulte y administre las órdenes activas del taller.</p>
+    </div>
+    <div class="flex flex-wrap items-center gap-md">
+        <div class="relative w-full md:w-64">
+            <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-lg">search</span>
+            <input class="w-full pl-10 pr-4 py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary shadow-sm"
+                   placeholder="Buscar por folio, cliente o placas..."
+                   @bind="SearchTerm" @bind:event="oninput" @bind:after="BuscarAsync" />
+        </div>
+        <button class="flex items-center gap-sm px-md py-2 bg-primary-container text-on-primary-container rounded-lg font-body-md text-body-md font-semibold hover:opacity-90 shadow-sm transition-opacity"
+                @onclick='() => Nav.NavigateTo("/ordenes/nueva")'>
+            <span class="material-symbols-outlined text-[20px]">add</span>
+            Nueva Orden
+        </button>
+    </div>
+</div>
+
+<div class="bg-surface border border-outline-variant rounded-xl shadow-sm overflow-hidden flex flex-col">
+    <div class="overflow-x-auto">
+        @if (ListaOrdenes is null)
+        {
+            <p class="p-lg text-body-md text-secondary">Cargando...</p>
+        }
+        else if (!ListaOrdenes.Any())
+        {
+            <p class="p-lg text-body-md text-secondary">No hay órdenes registradas todavía.</p>
+        }
+        else
+        {
+            <table class="w-full text-left border-collapse">
+                <thead class="bg-surface-container-low border-b border-outline-variant">
+                    <tr>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary whitespace-nowrap">Folio</th>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary whitespace-nowrap">Cliente</th>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary whitespace-nowrap">Vehículo</th>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary whitespace-nowrap">Recepción</th>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary whitespace-nowrap">Total</th>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary whitespace-nowrap">Estado</th>
+                    </tr>
+                </thead>
+                <tbody class="font-body-md text-body-md text-on-surface divide-y divide-outline-variant bg-surface">
+                    @foreach (var orden in ListaOrdenes)
+                    {
+                        <tr class="hover:bg-surface-container-lowest transition-colors cursor-pointer"
+                            @onclick='() => Nav.NavigateTo($"/ordenes/{orden.Id}")'>
+                            <td class="px-lg py-md font-data-mono text-data-mono text-primary font-semibold">@orden.Folio</td>
+                            <td class="px-lg py-md text-on-surface-variant">@(orden.Cliente?.Nombre ?? "—")</td>
+                            <td class="px-lg py-md text-on-surface-variant">@(orden.Vehiculo is not null ? $"{orden.Vehiculo.Marca} {orden.Vehiculo.Modelo}" : "—")</td>
+                            <td class="px-lg py-md font-data-mono text-data-mono text-on-surface-variant">@orden.FechaRecepcion.ToString("dd MMM yyyy")</td>
+                            <td class="px-lg py-md font-data-mono text-data-mono text-on-surface font-medium">@orden.Total.ToString("C2")</td>
+                            <td class="px-lg py-md">
+                                <span class="@BadgeClase(orden.Estado)">
+                                    @EtiquetaEstado(orden.Estado)
+                                </span>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+</div>
+
+@code {
+    private List<OrdenServicio>? ListaOrdenes;
+    private string SearchTerm = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarAsync();
+    }
+
+    private async Task CargarAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        var query = db.Ordenes
+            .Include(o => o.Cliente)
+            .Include(o => o.Vehiculo)
+            .Where(o => o.Activo)
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(SearchTerm))
+        {
+            var term = SearchTerm.Trim();
+            query = query.Where(o =>
+                o.Folio.Contains(term) ||
+                (o.Cliente != null && o.Cliente.Nombre.Contains(term)) ||
+                (o.Vehiculo != null && o.Vehiculo.Placas != null && o.Vehiculo.Placas.Contains(term)));
+        }
+
+        ListaOrdenes = await query.OrderByDescending(o => o.FechaRecepcion).ToListAsync();
+    }
+
+    private async Task BuscarAsync() => await CargarAsync();
+
+    private static string EtiquetaEstado(EstadoOrden estado) => estado switch
+    {
+        EstadoOrden.Recibido => "Recibido",
+        EstadoOrden.Diagnostico => "Diagnóstico",
+        EstadoOrden.Cotizacion => "Cotización",
+        EstadoOrden.EsperandoAutorizacion => "Esperando Autorización",
+        EstadoOrden.Autorizado => "Autorizado",
+        EstadoOrden.EnReparacion => "En Reparación",
+        EstadoOrden.EsperandoRefaccion => "Esperando Refacción",
+        EstadoOrden.Pausado => "Pausado",
+        EstadoOrden.Terminado => "Terminado",
+        EstadoOrden.ListoParaEntrega => "Listo para Entrega",
+        EstadoOrden.Entregado => "Entregado",
+        EstadoOrden.Cancelado => "Cancelado",
+        _ => estado.ToString()
+    };
+
+    private static string BadgeClase(EstadoOrden estado)
+    {
+        const string baseClase = "inline-flex items-center gap-xs px-2 py-1 rounded-full font-label-caps text-label-caps whitespace-nowrap";
+
+        return estado switch
+        {
+            EstadoOrden.Recibido or EstadoOrden.Diagnostico or EstadoOrden.Cotizacion
+                => $"{baseClase} bg-surface-container text-secondary border border-outline-variant",
+            EstadoOrden.EsperandoAutorizacion or EstadoOrden.EsperandoRefaccion or EstadoOrden.Pausado
+                => $"{baseClase} bg-secondary-fixed text-on-secondary-fixed-variant border border-secondary-fixed-dim",
+            EstadoOrden.Autorizado or EstadoOrden.EnReparacion
+                => $"{baseClase} bg-primary-fixed text-primary",
+            EstadoOrden.Terminado or EstadoOrden.ListoParaEntrega or EstadoOrden.Entregado
+                => $"{baseClase} bg-surface-container-highest text-on-surface border border-outline-variant",
+            EstadoOrden.Cancelado
+                => $"{baseClase} bg-error-container text-on-error-container",
+            _ => baseClase
+        };
+    }
+}

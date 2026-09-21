@@ -1,0 +1,153 @@
+@page "/ordenes/nueva"
+@attribute [Authorize(Roles = "Administrador,Secretaria,Mecanico")]
+
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.EntityFrameworkCore
+@using TallerManager.Domain.Entities
+@using TallerManager.Infrastructure.Data
+
+@inject IDbContextFactory<TallerManagerDbContext> DbFactory
+@inject NavigationManager Nav
+
+<PageTitle>Nueva Orden</PageTitle>
+
+<div class="mb-xl">
+    <h1 class="font-display-lg text-display-lg text-on-surface mb-xs">Nueva Orden de Servicio</h1>
+    <p class="font-body-md text-body-md text-secondary">Registre la recepción de un vehículo para iniciar una orden.</p>
+</div>
+
+<div class="bg-surface border border-outline-variant rounded-xl shadow-sm p-lg max-w-2xl">
+    @if (Clientes is null)
+    {
+        <p class="text-body-md text-secondary">Cargando...</p>
+    }
+    else
+    {
+        <EditForm Model="NewOrden" OnValidSubmit="GuardarAsync">
+            <DataAnnotationsValidator />
+            <div class="flex flex-col gap-md">
+                <div>
+                    <label class="font-label-caps text-label-caps text-secondary block mb-xs">Cliente *</label>
+                    <select class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                            @onchange="OnClienteSeleccionado">
+                        <option value="0">Selecciona un cliente...</option>
+                        @foreach (var c in Clientes)
+                        {
+                            <option value="@c.Id" selected="@(c.Id == ClienteIdSeleccionado)">@c.Nombre</option>
+                        }
+                    </select>
+                </div>
+
+                <div>
+                    <label class="font-label-caps text-label-caps text-secondary block mb-xs">Vehículo *</label>
+                    <InputSelect class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-50"
+                                 @bind-Value="NewOrden.VehiculoId" disabled="@(VehiculosDelCliente is null || !VehiculosDelCliente.Any())">
+                        <option value="0">
+                            @(ClienteIdSeleccionado == 0 ? "Primero selecciona un cliente" :
+                              (VehiculosDelCliente is not null && !VehiculosDelCliente.Any()) ? "Este cliente no tiene vehículos registrados" :
+                              "Selecciona un vehículo...")
+                        </option>
+                        @if (VehiculosDelCliente is not null)
+                        {
+                            @foreach (var v in VehiculosDelCliente)
+                            {
+                                <option value="@v.Id">@v.Marca @v.Modelo @(v.Placas is not null ? $"— {v.Placas}" : "")</option>
+                            }
+                        }
+                    </InputSelect>
+                </div>
+
+                <div>
+                    <label class="font-label-caps text-label-caps text-secondary block mb-xs">Kilometraje de recepción</label>
+                    <InputNumber class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                 @bind-Value="NewOrden.Kilometraje" />
+                </div>
+
+                <div>
+                    <label class="font-label-caps text-label-caps text-secondary block mb-xs">Observaciones de recepción</label>
+                    <InputTextArea class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                   placeholder="Daños existentes, nivel de combustible, objetos dejados dentro, etc."
+                                   @bind-Value="NewOrden.Observaciones" />
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(ErrorMensaje))
+                {
+                    <p class="text-error text-body-sm">@ErrorMensaje</p>
+                }
+            </div>
+
+            <div class="flex justify-end gap-sm mt-lg pt-md border-t border-outline-variant">
+                <button type="button" class="px-md py-2 rounded-lg font-body-md text-body-md text-on-surface-variant hover:bg-surface-container transition-colors"
+                        @onclick='() => Nav.NavigateTo("/ordenes")'>
+                    Cancelar
+                </button>
+                <button type="submit" class="px-md py-2 bg-primary-container text-on-primary-container rounded-lg font-body-md text-body-md font-semibold hover:opacity-90 shadow-sm transition-opacity">
+                    Crear Orden
+                </button>
+            </div>
+        </EditForm>
+    }
+</div>
+
+@code {
+    private List<Cliente>? Clientes;
+    private List<Vehiculo>? VehiculosDelCliente;
+    private int ClienteIdSeleccionado = 0;
+    private OrdenServicio NewOrden = new();
+    private string? ErrorMensaje;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        Clientes = await db.Clientes.Where(c => c.Activo).OrderBy(c => c.Nombre).ToListAsync();
+    }
+
+    private async Task OnClienteSeleccionado(ChangeEventArgs e)
+    {
+        ClienteIdSeleccionado = int.TryParse(e.Value?.ToString(), out var id) ? id : 0;
+        NewOrden.VehiculoId = 0;
+
+        if (ClienteIdSeleccionado <= 0)
+        {
+            VehiculosDelCliente = null;
+            return;
+        }
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        VehiculosDelCliente = await db.Vehiculos
+            .Where(v => v.ClienteId == ClienteIdSeleccionado && v.Activo)
+            .OrderBy(v => v.Marca)
+            .ToListAsync();
+    }
+
+    private async Task GuardarAsync()
+    {
+        if (ClienteIdSeleccionado <= 0)
+        {
+            ErrorMensaje = "Selecciona un cliente.";
+            return;
+        }
+
+        if (NewOrden.VehiculoId <= 0)
+        {
+            ErrorMensaje = "Selecciona un vehículo.";
+            return;
+        }
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        var taller = await db.Talleres.OrderBy(t => t.FechaCreacion).FirstOrDefaultAsync();
+        if (taller is null) return;
+
+        NewOrden.TallerId = taller.Id;
+        NewOrden.ClienteId = ClienteIdSeleccionado;
+        NewOrden.Estado = EstadoOrden.Recibido;
+        NewOrden.Folio = await FolioGenerator.SiguienteFolioAsync(db, taller.Id);
+
+        db.Ordenes.Add(NewOrden);
+        await db.SaveChangesAsync();
+
+        Nav.NavigateTo("/ordenes");
+    }
+}

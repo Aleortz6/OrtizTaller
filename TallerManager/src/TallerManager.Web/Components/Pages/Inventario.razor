@@ -1,0 +1,363 @@
+@page "/inventario"
+@attribute [Authorize(Roles = "Administrador,Secretaria")]
+
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.EntityFrameworkCore
+@using TallerManager.Domain.Entities
+@using TallerManager.Infrastructure.Data
+
+@inject IDbContextFactory<TallerManagerDbContext> DbFactory
+
+<PageTitle>Inventario</PageTitle>
+
+<div class="flex flex-col md:flex-row md:items-center justify-between mb-xl gap-md">
+    <div>
+        <h1 class="font-display-lg text-display-lg text-on-surface mb-xs">Inventario</h1>
+        <p class="font-body-md text-body-md text-secondary">Catálogo de refacciones y control de existencias.</p>
+    </div>
+    <div class="flex flex-wrap items-center gap-md">
+        <div class="relative w-full md:w-64">
+            <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-lg">search</span>
+            <input class="w-full pl-10 pr-4 py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary shadow-sm"
+                   placeholder="Buscar por nombre, código o SKU..."
+                   @bind="SearchTerm" @bind:event="oninput" @bind:after="BuscarAsync" />
+        </div>
+        <button class="flex items-center gap-sm px-md py-2 bg-primary-container text-on-primary-container rounded-lg font-body-md text-body-md font-semibold hover:opacity-90 shadow-sm transition-opacity"
+                @onclick="AbrirModalNuevaRefaccion">
+            <span class="material-symbols-outlined text-[20px]">add</span>
+            Nueva Refacción
+        </button>
+    </div>
+</div>
+
+@if (RefaccionesBajoStock is not null && RefaccionesBajoStock.Any())
+{
+    <div class="bg-error-container border border-error rounded-xl p-md mb-lg flex items-start gap-md">
+        <span class="material-symbols-outlined text-on-error-container">warning</span>
+        <div>
+            <p class="font-body-md text-body-md text-on-error-container font-semibold">Inventario bajo (@RefaccionesBajoStock.Count)</p>
+            <p class="font-body-sm text-body-sm text-on-error-container">
+                @string.Join(", ", RefaccionesBajoStock.Select(r => r.Nombre))
+            </p>
+        </div>
+    </div>
+}
+
+<div class="bg-surface border border-outline-variant rounded-xl shadow-sm overflow-hidden flex flex-col">
+    <div class="overflow-x-auto">
+        @if (ListaRefacciones is null)
+        {
+            <p class="p-lg text-body-md text-secondary">Cargando...</p>
+        }
+        else if (!ListaRefacciones.Any())
+        {
+            <p class="p-lg text-body-md text-secondary">No hay refacciones registradas todavía.</p>
+        }
+        else
+        {
+            <table class="w-full text-left border-collapse">
+                <thead class="bg-surface-container-low border-b border-outline-variant">
+                    <tr>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary">Refacción</th>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary">Código / SKU</th>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary text-right">Existencia</th>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary text-right">Costo</th>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary text-right">Precio</th>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary text-right">Movimiento</th>
+                    </tr>
+                </thead>
+                <tbody class="font-body-md text-body-md text-on-surface divide-y divide-outline-variant bg-surface">
+                    @foreach (var r in ListaRefacciones)
+                    {
+                        <tr class="hover:bg-surface-container-lowest transition-colors">
+                            <td class="px-lg py-md">
+                                <div class="flex flex-col">
+                                    <span class="font-semibold text-on-surface">@r.Nombre</span>
+                                    <span class="text-body-sm text-secondary">@(r.Marca ?? "—") @(!string.IsNullOrWhiteSpace(r.Categoria) ? $"· {r.Categoria}" : "")</span>
+                                </div>
+                            </td>
+                            <td class="px-lg py-md font-data-mono text-data-mono text-on-surface-variant">@(r.Codigo ?? r.Sku ?? "—")</td>
+                            <td class="px-lg py-md text-right">
+                                <span class="@ExistenciaClase(r)">@r.Existencia</span>
+                                @if (r.Existencia <= r.StockMinimo)
+                                {
+                                    <span class="material-symbols-outlined text-error text-[16px] align-middle ml-xs">warning</span>
+                                }
+                            </td>
+                            <td class="px-lg py-md text-right font-data-mono text-data-mono text-on-surface-variant">@r.Costo.ToString("C2")</td>
+                            <td class="px-lg py-md text-right font-data-mono text-data-mono font-medium">@r.Precio.ToString("C2")</td>
+                            <td class="px-lg py-md text-right">
+                                <button class="text-secondary hover:text-primary transition-colors" @onclick="() => AbrirModalMovimiento(r)">
+                                    <span class="material-symbols-outlined text-[18px]">sync_alt</span>
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+</div>
+
+<!-- Modal nueva refacción -->
+@if (MostrarModalRefaccion)
+{
+    <div class="fixed inset-0 bg-inverse-surface/50 z-[100] flex items-center justify-center p-md">
+        <div class="bg-surface rounded-xl shadow-lg w-full max-w-lg flex flex-col max-h-[90vh]">
+            <div class="flex items-center justify-between px-lg py-md border-b border-outline-variant">
+                <h2 class="font-headline-sm text-headline-sm text-on-surface">Nueva refacción</h2>
+                <button class="text-on-surface-variant hover:bg-surface-container rounded-full p-1 transition-colors" @onclick="CerrarModalRefaccion">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <EditForm Model="NewRefaccion" OnValidSubmit="GuardarRefaccionAsync">
+                <DataAnnotationsValidator />
+                <div class="px-lg py-md flex flex-col gap-md overflow-y-auto">
+                    <div>
+                        <label class="font-label-caps text-label-caps text-secondary block mb-xs">Nombre *</label>
+                        <InputText class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                   @bind-Value="NewRefaccion.Nombre" />
+                        <ValidationMessage For="() => NewRefaccion.Nombre" class="text-error text-body-sm mt-xs block" />
+                    </div>
+                    <div class="grid grid-cols-2 gap-md">
+                        <div>
+                            <label class="font-label-caps text-label-caps text-secondary block mb-xs">Código</label>
+                            <InputText class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-data-mono text-data-mono text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                       @bind-Value="NewRefaccion.Codigo" />
+                        </div>
+                        <div>
+                            <label class="font-label-caps text-label-caps text-secondary block mb-xs">SKU</label>
+                            <InputText class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-data-mono text-data-mono text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                       @bind-Value="NewRefaccion.Sku" />
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-md">
+                        <div>
+                            <label class="font-label-caps text-label-caps text-secondary block mb-xs">Marca</label>
+                            <InputText class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                       @bind-Value="NewRefaccion.Marca" />
+                        </div>
+                        <div>
+                            <label class="font-label-caps text-label-caps text-secondary block mb-xs">Categoría</label>
+                            <InputText class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                       @bind-Value="NewRefaccion.Categoria" />
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-md">
+                        <div>
+                            <label class="font-label-caps text-label-caps text-secondary block mb-xs">Existencia inicial</label>
+                            <InputNumber class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                         @bind-Value="NewRefaccion.Existencia" />
+                        </div>
+                        <div>
+                            <label class="font-label-caps text-label-caps text-secondary block mb-xs">Stock mínimo</label>
+                            <InputNumber class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                         @bind-Value="NewRefaccion.StockMinimo" />
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-md">
+                        <div>
+                            <label class="font-label-caps text-label-caps text-secondary block mb-xs">Costo</label>
+                            <InputNumber class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                         @bind-Value="NewRefaccion.Costo" step="0.01" />
+                        </div>
+                        <div>
+                            <label class="font-label-caps text-label-caps text-secondary block mb-xs">Precio de venta</label>
+                            <InputNumber class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                         @bind-Value="NewRefaccion.Precio" step="0.01" />
+                        </div>
+                    </div>
+                </div>
+                <div class="flex justify-end gap-sm px-lg py-md border-t border-outline-variant">
+                    <button type="button" class="px-md py-2 rounded-lg font-body-md text-body-md text-on-surface-variant hover:bg-surface-container transition-colors" @onclick="CerrarModalRefaccion">
+                        Cancelar
+                    </button>
+                    <button type="submit" class="px-md py-2 bg-primary-container text-on-primary-container rounded-lg font-body-md text-body-md font-semibold hover:opacity-90 shadow-sm transition-opacity">
+                        Guardar
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}
+
+<!-- Modal registrar movimiento -->
+@if (MostrarModalMovimiento && RefaccionSeleccionada is not null)
+{
+    <div class="fixed inset-0 bg-inverse-surface/50 z-[100] flex items-center justify-center p-md">
+        <div class="bg-surface rounded-xl shadow-lg w-full max-w-md flex flex-col">
+            <div class="flex items-center justify-between px-lg py-md border-b border-outline-variant">
+                <div>
+                    <h2 class="font-headline-sm text-headline-sm text-on-surface">Registrar movimiento</h2>
+                    <p class="text-body-sm text-secondary">@RefaccionSeleccionada.Nombre · Existencia actual: @RefaccionSeleccionada.Existencia</p>
+                </div>
+                <button class="text-on-surface-variant hover:bg-surface-container rounded-full p-1 transition-colors" @onclick="CerrarModalMovimiento">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <EditForm Model="NuevoMovimiento" OnValidSubmit="GuardarMovimientoAsync">
+                <div class="px-lg py-md flex flex-col gap-md">
+                    <div>
+                        <label class="font-label-caps text-label-caps text-secondary block mb-xs">Tipo de movimiento</label>
+                        <InputSelect class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                     @bind-Value="NuevoMovimiento.Tipo">
+                            <option value="@TipoMovimiento.Entrada">Entrada (compra/reabastecimiento)</option>
+                            <option value="@TipoMovimiento.Salida">Salida (uso manual, fuera de una orden)</option>
+                            <option value="@TipoMovimiento.Ajuste">Ajuste (corrección de conteo)</option>
+                        </InputSelect>
+                    </div>
+                    <div>
+                        <label class="font-label-caps text-label-caps text-secondary block mb-xs">Cantidad</label>
+                        <InputNumber class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                     @bind-Value="NuevoMovimiento.Cantidad" />
+                    </div>
+                    <div>
+                        <label class="font-label-caps text-label-caps text-secondary block mb-xs">Motivo</label>
+                        <InputText class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                   placeholder="Ej. Compra a proveedor, conteo físico, merma..."
+                                   @bind-Value="NuevoMovimiento.Motivo" />
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(ErrorMovimiento))
+                    {
+                        <p class="text-error text-body-sm">@ErrorMovimiento</p>
+                    }
+                </div>
+                <div class="flex justify-end gap-sm px-lg py-md border-t border-outline-variant">
+                    <button type="button" class="px-md py-2 rounded-lg font-body-md text-body-md text-on-surface-variant hover:bg-surface-container transition-colors" @onclick="CerrarModalMovimiento">
+                        Cancelar
+                    </button>
+                    <button type="submit" class="px-md py-2 bg-primary-container text-on-primary-container rounded-lg font-body-md text-body-md font-semibold hover:opacity-90 shadow-sm transition-opacity">
+                        Registrar
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Refaccion>? ListaRefacciones;
+    private List<Refaccion>? RefaccionesBajoStock;
+    private string SearchTerm = string.Empty;
+
+    private bool MostrarModalRefaccion = false;
+    private Refaccion NewRefaccion = new();
+
+    private bool MostrarModalMovimiento = false;
+    private Refaccion? RefaccionSeleccionada;
+    private MovimientoInventario NuevoMovimiento = new();
+    private string? ErrorMovimiento;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarAsync();
+    }
+
+    private async Task CargarAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        var query = db.Refacciones.Where(r => r.Activo).AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(SearchTerm))
+        {
+            var term = SearchTerm.Trim();
+            query = query.Where(r =>
+                r.Nombre.Contains(term) ||
+                (r.Codigo != null && r.Codigo.Contains(term)) ||
+                (r.Sku != null && r.Sku.Contains(term)));
+        }
+
+        ListaRefacciones = await query.OrderBy(r => r.Nombre).ToListAsync();
+        RefaccionesBajoStock = ListaRefacciones.Where(r => r.Existencia <= r.StockMinimo).ToList();
+    }
+
+    private async Task BuscarAsync() => await CargarAsync();
+
+    private void AbrirModalNuevaRefaccion()
+    {
+        NewRefaccion = new Refaccion();
+        MostrarModalRefaccion = true;
+    }
+
+    private void CerrarModalRefaccion() => MostrarModalRefaccion = false;
+
+    private async Task GuardarRefaccionAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        var taller = await db.Talleres.OrderBy(t => t.FechaCreacion).FirstOrDefaultAsync();
+        if (taller is null) return;
+
+        NewRefaccion.TallerId = taller.Id;
+        db.Refacciones.Add(NewRefaccion);
+        await db.SaveChangesAsync();
+
+        if (NewRefaccion.Existencia > 0)
+        {
+            db.MovimientosInventario.Add(new MovimientoInventario
+            {
+                TallerId = taller.Id,
+                RefaccionId = NewRefaccion.Id,
+                Tipo = TipoMovimiento.Entrada,
+                Cantidad = NewRefaccion.Existencia,
+                CostoUnitario = NewRefaccion.Costo,
+                Motivo = "Existencia inicial al dar de alta"
+            });
+            await db.SaveChangesAsync();
+        }
+
+        MostrarModalRefaccion = false;
+        await CargarAsync();
+    }
+
+    private void AbrirModalMovimiento(Refaccion refaccion)
+    {
+        RefaccionSeleccionada = refaccion;
+        NuevoMovimiento = new MovimientoInventario { Tipo = TipoMovimiento.Entrada };
+        ErrorMovimiento = null;
+        MostrarModalMovimiento = true;
+    }
+
+    private void CerrarModalMovimiento() => MostrarModalMovimiento = false;
+
+    private async Task GuardarMovimientoAsync()
+    {
+        if (RefaccionSeleccionada is null) return;
+
+        if (NuevoMovimiento.Cantidad <= 0)
+        {
+            ErrorMovimiento = "La cantidad debe ser mayor a cero.";
+            return;
+        }
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        var refaccionDb = await db.Refacciones.FirstAsync(r => r.Id == RefaccionSeleccionada.Id);
+
+        if (NuevoMovimiento.Tipo == TipoMovimiento.Salida && NuevoMovimiento.Cantidad > refaccionDb.Existencia)
+        {
+            ErrorMovimiento = $"No hay suficiente existencia (disponible: {refaccionDb.Existencia}).";
+            return;
+        }
+
+        var delta = NuevoMovimiento.Tipo == TipoMovimiento.Salida ? -NuevoMovimiento.Cantidad : NuevoMovimiento.Cantidad;
+        refaccionDb.Existencia += delta;
+
+        NuevoMovimiento.TallerId = refaccionDb.TallerId;
+        NuevoMovimiento.RefaccionId = refaccionDb.Id;
+        db.MovimientosInventario.Add(NuevoMovimiento);
+
+        await db.SaveChangesAsync();
+
+        MostrarModalMovimiento = false;
+        await CargarAsync();
+    }
+
+    private static string ExistenciaClase(Refaccion r)
+    {
+        const string baseClase = "font-data-mono text-data-mono font-semibold";
+        return r.Existencia <= r.StockMinimo ? $"{baseClase} text-error" : $"{baseClase} text-on-surface";
+    }
+}

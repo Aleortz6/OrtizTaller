@@ -1,0 +1,186 @@
+﻿@page "/"
+
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.EntityFrameworkCore
+@using TallerManager.Domain.Entities
+@using TallerManager.Infrastructure.Data
+
+@inject IDbContextFactory<TallerManagerDbContext> DbFactory
+@inject NavigationManager Nav
+
+<PageTitle>Inicio</PageTitle>
+
+<div class="mb-xl">
+    <h1 class="font-display-lg text-display-lg text-on-surface mb-xs">Panel de Control</h1>
+    <p class="font-body-md text-body-md text-secondary">Resumen de la operación del taller.</p>
+</div>
+
+@if (Resumen is null)
+{
+    <p class="text-body-md text-secondary">Cargando...</p>
+}
+else
+{
+    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-lg mb-lg">
+        <div class="bg-surface border border-outline-variant rounded-xl shadow-sm p-lg cursor-pointer hover:shadow-md transition-shadow" @onclick='() => Nav.NavigateTo("/ordenes")'>
+            <span class="block font-label-caps text-label-caps text-secondary mb-xs">ÓRDENES ABIERTAS</span>
+            <span class="block font-display-lg text-display-lg text-on-surface">@Resumen.OrdenesAbiertas</span>
+        </div>
+        <div class="bg-surface border border-outline-variant rounded-xl shadow-sm p-lg cursor-pointer hover:shadow-md transition-shadow" @onclick='() => Nav.NavigateTo("/vehiculos")'>
+            <span class="block font-label-caps text-label-caps text-secondary mb-xs">VEHÍCULOS EN TALLER</span>
+            <span class="block font-display-lg text-display-lg text-on-surface">@Resumen.VehiculosEnTaller</span>
+        </div>
+
+        <AuthorizeView Roles="Administrador,Secretaria">
+            <Authorized>
+                <div class="bg-surface border border-outline-variant rounded-xl shadow-sm p-lg cursor-pointer hover:shadow-md transition-shadow" @onclick='() => Nav.NavigateTo("/inventario")'>
+                    <span class="block font-label-caps text-label-caps text-secondary mb-xs">INVENTARIO BAJO</span>
+                    <span class="block font-display-lg text-display-lg @(Resumen.InventarioBajo > 0 ? "text-error" : "text-on-surface")">@Resumen.InventarioBajo</span>
+                </div>
+                <div class="bg-surface border border-outline-variant rounded-xl shadow-sm p-lg cursor-pointer hover:shadow-md transition-shadow" @onclick='() => Nav.NavigateTo("/finanzas")'>
+                    <span class="block font-label-caps text-label-caps text-secondary mb-xs">PAGOS PENDIENTES</span>
+                    <span class="block font-display-lg text-display-lg @(Resumen.PagosPendientes > 0 ? "text-error" : "text-on-surface")">@Resumen.PagosPendientes.ToString("C2")</span>
+                </div>
+            </Authorized>
+        </AuthorizeView>
+    </div>
+
+    <AuthorizeView Roles="Administrador,Secretaria">
+        <Authorized>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-lg mb-lg">
+                <div class="bg-primary-fixed border border-primary rounded-xl shadow-sm p-lg">
+                    <span class="block font-label-caps text-label-caps text-on-primary-fixed-variant mb-xs">INGRESOS DEL MES</span>
+                    <span class="block font-display-lg text-display-lg text-primary">@Resumen.IngresosDelMes.ToString("C2")</span>
+                </div>
+                <div class="bg-surface border border-outline-variant rounded-xl shadow-sm p-lg">
+                    <span class="block font-label-caps text-label-caps text-secondary mb-xs">CLIENTES ACTIVOS</span>
+                    <span class="block font-display-lg text-display-lg text-on-surface">@Resumen.ClientesActivos</span>
+                </div>
+            </div>
+        </Authorized>
+    </AuthorizeView>
+
+    <div class="bg-surface border border-outline-variant rounded-xl shadow-sm overflow-hidden flex flex-col">
+        <div class="p-lg border-b border-outline-variant">
+            <h2 class="font-headline-sm text-headline-sm text-on-surface">Órdenes recientes</h2>
+        </div>
+        <div class="overflow-x-auto">
+            @if (!OrdenesRecientes.Any())
+            {
+                <p class="p-lg text-body-md text-secondary">No hay órdenes registradas todavía.</p>
+            }
+            else
+            {
+                <table class="w-full text-left border-collapse">
+                    <thead class="bg-surface-container-low border-b border-outline-variant">
+                        <tr>
+                            <th class="px-lg py-sm font-label-caps text-label-caps text-secondary">Folio</th>
+                            <th class="px-lg py-sm font-label-caps text-label-caps text-secondary">Cliente</th>
+                            <th class="px-lg py-sm font-label-caps text-label-caps text-secondary">Vehículo</th>
+                            <th class="px-lg py-sm font-label-caps text-label-caps text-secondary">Estado</th>
+                        </tr>
+                    </thead>
+                    <tbody class="font-body-md text-body-md text-on-surface divide-y divide-outline-variant">
+                        @foreach (var orden in OrdenesRecientes)
+                        {
+                            <tr class="hover:bg-surface-container-lowest transition-colors cursor-pointer" @onclick='() => Nav.NavigateTo($"/ordenes/{orden.Id}")'>
+                                <td class="px-lg py-md font-data-mono text-data-mono text-primary font-semibold">@orden.Folio</td>
+                                <td class="px-lg py-md text-on-surface-variant">@(orden.Cliente?.Nombre ?? "—")</td>
+                                <td class="px-lg py-md text-on-surface-variant">@(orden.Vehiculo is not null ? $"{orden.Vehiculo.Marca} {orden.Vehiculo.Modelo}" : "—")</td>
+                                <td class="px-lg py-md">
+                                    <span class="inline-flex px-2 py-1 rounded-full bg-surface-container text-secondary font-label-caps text-label-caps">
+                                        @EtiquetaEstado(orden.Estado)
+                                    </span>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private record ResumenDashboard(
+        int OrdenesAbiertas,
+        int VehiculosEnTaller,
+        int InventarioBajo,
+        decimal PagosPendientes,
+        decimal IngresosDelMes,
+        int ClientesActivos);
+
+    private ResumenDashboard? Resumen;
+    private List<OrdenServicio> OrdenesRecientes = new();
+
+    private static readonly EstadoOrden[] EstadosCerrados = { EstadoOrden.Entregado, EstadoOrden.Cancelado };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        var ordenesAbiertas = await db.Ordenes
+            .Where(o => o.Activo && !EstadosCerrados.Contains(o.Estado))
+            .ToListAsync();
+
+        var vehiculosEnTaller = ordenesAbiertas.Select(o => o.VehiculoId).Distinct().Count();
+
+        var inventarioBajo = await db.Refacciones
+            .Where(r => r.Activo && r.Existencia <= r.StockMinimo)
+            .CountAsync();
+
+        var todasLasOrdenes = await db.Ordenes.Where(o => o.Activo).ToListAsync();
+        var pagosPorOrden = await db.Pagos
+            .GroupBy(p => p.OrdenId)
+            .Select(g => new { OrdenId = g.Key, Total = g.Sum(p => p.Monto) })
+            .ToListAsync();
+
+        var pagosPendientes = todasLasOrdenes.Sum(o =>
+        {
+            var pagado = pagosPorOrden.FirstOrDefault(p => p.OrdenId == o.Id)?.Total ?? 0;
+            var pendiente = o.Total - pagado;
+            return pendiente > 0 ? pendiente : 0;
+        });
+
+        var inicioMes = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
+        var ingresosDelMes = await db.Pagos
+            .Where(p => p.Fecha >= inicioMes)
+            .SumAsync(p => (decimal?)p.Monto) ?? 0;
+
+        var clientesActivos = await db.Clientes.CountAsync(c => c.Activo);
+
+        Resumen = new ResumenDashboard(
+            ordenesAbiertas.Count,
+            vehiculosEnTaller,
+            inventarioBajo,
+            pagosPendientes,
+            ingresosDelMes,
+            clientesActivos);
+
+        OrdenesRecientes = await db.Ordenes
+            .Include(o => o.Cliente)
+            .Include(o => o.Vehiculo)
+            .Where(o => o.Activo)
+            .OrderByDescending(o => o.FechaRecepcion)
+            .Take(5)
+            .ToListAsync();
+    }
+
+    private static string EtiquetaEstado(EstadoOrden estado) => estado switch
+    {
+        EstadoOrden.Recibido => "Recibido",
+        EstadoOrden.Diagnostico => "Diagnóstico",
+        EstadoOrden.Cotizacion => "Cotización",
+        EstadoOrden.EsperandoAutorizacion => "Esperando Autorización",
+        EstadoOrden.Autorizado => "Autorizado",
+        EstadoOrden.EnReparacion => "En Reparación",
+        EstadoOrden.EsperandoRefaccion => "Esperando Refacción",
+        EstadoOrden.Pausado => "Pausado",
+        EstadoOrden.Terminado => "Terminado",
+        EstadoOrden.ListoParaEntrega => "Listo para Entrega",
+        EstadoOrden.Entregado => "Entregado",
+        EstadoOrden.Cancelado => "Cancelado",
+        _ => estado.ToString()
+    };
+}

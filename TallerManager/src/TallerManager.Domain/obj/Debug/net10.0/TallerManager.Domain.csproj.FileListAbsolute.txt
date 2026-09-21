@@ -1,0 +1,13 @@
+C:\Users\USER\Desktop\TallerManager\TallerManager\src\TallerManager.Domain\bin\Debug\net10.0\TallerManager.Domain.deps.json
+C:\Users\USER\Desktop\TallerManager\TallerManager\src\TallerManager.Domain\bin\Debug\net10.0\TallerManager.Domain.dll
+C:\Users\USER\Desktop\TallerManager\TallerManager\src\TallerManager.Domain\bin\Debug\net10.0\TallerManager.Domain.pdb
+C:\Users\USER\Desktop\TallerManager\TallerManager\src\TallerManager.Domain\obj\Debug\net10.0\TallerManager.Domain.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\USER\Desktop\TallerManager\TallerManager\src\TallerManager.Domain\obj\Debug\net10.0\TallerManager.Domain.AssemblyInfoInputs.cache
+C:\Users\USER\Desktop\TallerManager\TallerManager\src\TallerManager.Domain\obj\Debug\net10.0\TallerManager.Domain.AssemblyInfo.cs
+C:\Users\USER\Desktop\TallerManager\TallerManager\src\TallerManager.Domain\obj\Debug\net10.0\TallerManager.Domain.csproj.CoreCompileInputs.cache
+C:\Users\USER\Desktop\TallerManager\TallerManager\src\TallerManager.Domain\obj\Debug\net10.0\TallerManager.Domain.dll
+C:\Users\USER\Desktop\TallerManager\TallerManager\src\TallerManager.Domain\obj\Debug\net10.0\refint\TallerManager.Domain.dll
+C:\Users\USER\Desktop\TallerManager\TallerManager\src\TallerManager.Domain\obj\Debug\net10.0\TallerManager.Domain.pdb
+C:\Users\USER\Desktop\TallerManager\TallerManager\src\TallerManager.Domain\obj\Debug\net10.0\ref\TallerManager.Domain.dll
+C:\Users\USER\Desktop\TallerManager\TallerManager\src\TallerManager.Domain\obj\Debug\net10.0\TallerManager.Domain.sourcelink.json
+C:\Users\USER\Desktop\TallerManager\TallerManager\src\TallerManager.Domain\obj\Debug\net10.0\TallerManager.Domain.csproj.AssemblyReference.cache

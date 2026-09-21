@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/TallerManager.Application/TallerManager.Application.csproj" />
+    <Project Path="src/TallerManager.Domain/TallerManager.Domain.csproj" />
+    <Project Path="src/TallerManager.Infrastructure/TallerManager.Infrastructure.csproj" />
+    <Project Path="src/TallerManager.Web/TallerManager.Web.csproj" />
+  </Folder>
+</Solution>

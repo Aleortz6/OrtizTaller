@@ -1,0 +1,60 @@
+@page "/login"
+@attribute [AllowAnonymous]
+@attribute [ExcludeFromInteractiveRouting]
+@layout EmptyLayout
+
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using TallerManager.Domain.Entities
+
+<PageTitle>Iniciar sesión</PageTitle>
+
+<div class="min-h-screen flex items-center justify-center bg-surface-container-low p-md">
+    <div class="bg-surface rounded-xl shadow-lg w-full max-w-sm p-xl">
+        <div class="flex flex-col items-center mb-lg">
+            <div class="w-14 h-14 rounded-lg bg-primary-container flex items-center justify-center text-on-primary-container shadow-sm mb-md">
+                <span class="material-symbols-outlined text-[28px]">directions_car</span>
+            </div>
+            <h1 class="font-headline-md text-headline-md text-primary font-bold">TALLER MANAGER</h1>
+            <p class="font-label-caps text-label-caps text-secondary">Gestión Profesional</p>
+        </div>
+
+        <form method="post" action="account/login">
+            <AntiforgeryToken />
+
+            <div class="flex flex-col gap-md">
+                <div>
+                    <label class="font-label-caps text-label-caps text-secondary block mb-xs">Correo</label>
+                    <input type="email" name="Email" required
+                           class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary" />
+                </div>
+                <div>
+                    <label class="font-label-caps text-label-caps text-secondary block mb-xs">Contraseña</label>
+                    <input type="password" name="Password" required
+                           class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary" />
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(Error))
+                {
+                    <p class="text-error text-body-sm">@Error</p>
+                }
+
+                <button type="submit"
+                        class="mt-sm px-md py-2 bg-primary text-on-primary rounded-lg font-body-md text-body-md font-semibold hover:opacity-90 shadow-sm transition-opacity">
+                    Iniciar sesión
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromForm]
+    public string? Email { get; set; }
+
+    [SupplyParameterFromForm]
+    public string? Password { get; set; }
+
+    [Parameter, SupplyParameterFromQuery]
+    public string? Error { get; set; }
+}

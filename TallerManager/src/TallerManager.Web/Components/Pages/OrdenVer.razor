@@ -1,0 +1,878 @@
+@page "/ordenes/{OrdenId:int}"
+@attribute [Authorize(Roles = "Administrador,Secretaria,Mecanico")]
+
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.EntityFrameworkCore
+@using TallerManager.Domain.Entities
+@using TallerManager.Infrastructure.Data
+
+@inject IDbContextFactory<TallerManagerDbContext> DbFactory
+@inject NavigationManager Nav
+@inject IWebHostEnvironment Environment
+
+<PageTitle>@(Orden?.Folio ?? "Orden")</PageTitle>
+
+@if (Orden is null)
+{
+    <p class="text-body-md text-secondary">Cargando...</p>
+}
+else
+{
+    <div class="flex flex-col md:flex-row md:items-center justify-between mb-xl gap-md">
+        <div>
+            <div class="flex items-center gap-md mb-xs">
+                <h1 class="font-display-lg text-display-lg text-on-surface">@Orden.Folio</h1>
+                <span class="@BadgeClase(Orden.Estado)">@EtiquetaEstado(Orden.Estado)</span>
+            </div>
+            <p class="font-body-md text-body-md text-secondary">
+                @Orden.Cliente?.Nombre · @Orden.Vehiculo?.Marca @Orden.Vehiculo?.Modelo
+                @(Orden.Vehiculo?.Placas is not null ? $"— {Orden.Vehiculo.Placas}" : "")
+            </p>
+            <div class="flex flex-wrap gap-md mt-xs">
+                <a href="/ordenes/@Orden.Id/cotizacion.pdf" target="_blank"
+                   class="inline-flex items-center gap-xs text-primary hover:opacity-80 transition-opacity font-body-sm text-body-sm font-semibold">
+                    <span class="material-symbols-outlined text-[18px]">picture_as_pdf</span>
+                    Descargar cotización PDF
+                </a>
+                <a href="/ordenes/@Orden.Id/recepcion.pdf" target="_blank"
+                   class="inline-flex items-center gap-xs text-primary hover:opacity-80 transition-opacity font-body-sm text-body-sm font-semibold">
+                    <span class="material-symbols-outlined text-[18px]">receipt_long</span>
+                    Descargar recibo de recepción
+                </a>
+            </div>
+        </div>
+        <div class="flex items-center gap-md">
+            <label class="font-label-caps text-label-caps text-secondary">Estado:</label>
+            <select class="px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                    @onchange="CambiarEstadoAsync">
+                @foreach (var estado in Enum.GetValues<EstadoOrden>())
+                {
+                    <option value="@estado" selected="@(estado == Orden.Estado)">@EtiquetaEstado(estado)</option>
+                }
+            </select>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 xl:grid-cols-3 gap-lg mb-lg">
+        <div class="bg-surface border border-outline-variant rounded-xl shadow-sm p-lg">
+            <h2 class="font-headline-sm text-headline-sm text-on-surface mb-md">Recepción</h2>
+            <div class="flex flex-col gap-sm">
+                <div>
+                    <span class="block font-label-caps text-label-caps text-secondary mb-xs">FECHA</span>
+                    <span class="block font-data-mono text-data-mono text-on-surface">@Orden.FechaRecepcion.ToString("dd MMM yyyy, HH:mm")</span>
+                </div>
+                <div>
+                    <span class="block font-label-caps text-label-caps text-secondary mb-xs">KILOMETRAJE</span>
+                    <span class="block font-data-mono text-data-mono text-on-surface">@(Orden.Kilometraje?.ToString("N0") ?? "—") km</span>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(Orden.Observaciones))
+                {
+                    <div>
+                        <span class="block font-label-caps text-label-caps text-secondary mb-xs">OBSERVACIONES</span>
+                        <span class="block font-body-md text-body-md text-on-surface">@Orden.Observaciones</span>
+                    </div>
+                }
+                <div>
+                    <span class="block font-label-caps text-label-caps text-secondary mb-xs">FOTOGRAFÍAS</span>
+                    <div class="grid grid-cols-3 gap-xs mt-xs">
+                        @if (Fotos is not null)
+                        {
+                            @foreach (var foto in Fotos.Where(f => f.Tipo == TipoFotografia.Recepcion))
+                            {
+                                <div class="relative group">
+                                    <img src="@foto.RutaArchivo" alt="Foto de recepción" class="w-full h-16 object-cover rounded-md border border-outline-variant" />
+                                    <button class="absolute top-1 right-1 bg-error text-on-error rounded-full w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                            @onclick="() => EliminarFotoAsync(foto.Id)">
+                                        <span class="material-symbols-outlined text-[14px]">close</span>
+                                    </button>
+                                </div>
+                            }
+                        }
+                    </div>
+                    <InputFile OnChange="OnFotosRecepcionSeleccionadas" multiple accept=".png,.jpg,.jpeg" class="text-body-sm mt-sm" />
+                    @if (SubiendoFotos)
+                    {
+                        <p class="text-body-sm text-primary mt-xs">Subiendo fotos...</p>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-surface border border-outline-variant rounded-xl shadow-sm p-lg xl:col-span-2">
+            <h2 class="font-headline-sm text-headline-sm text-on-surface mb-md">Diagnóstico</h2>
+            <EditForm Model="Orden" OnValidSubmit="GuardarDiagnosticoAsync">
+                <InputTextArea class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary min-h-[120px]"
+                               placeholder="Síntomas reportados, pruebas realizadas, hallazgos y causa probable..."
+                               @bind-Value="Orden.Diagnostico" />
+                <div class="flex justify-end mt-sm">
+                    <button type="submit" class="px-md py-2 bg-primary-container text-on-primary-container rounded-lg font-body-md text-body-md font-semibold hover:opacity-90 shadow-sm transition-opacity">
+                        Guardar diagnóstico
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+
+    <div class="bg-surface border border-outline-variant rounded-xl shadow-sm overflow-hidden flex flex-col mb-lg">
+        <div class="p-lg border-b border-outline-variant flex justify-between items-center bg-surface-bright">
+            <h2 class="font-headline-sm text-headline-sm text-on-surface">Cotización</h2>
+            <div class="flex items-center gap-md">
+                @if (!Orden.Autorizado)
+                {
+                    <button class="text-secondary hover:text-primary transition-colors text-body-sm font-semibold flex items-center gap-xs"
+                            @onclick="RecalcularYGuardarAsync">
+                        <span class="material-symbols-outlined text-[16px]">refresh</span>
+                        Recalcular totales
+                    </button>
+                }
+                @if (Orden.Autorizado)
+                {
+                    <span class="inline-flex items-center gap-xs px-2 py-1 rounded-full bg-primary-fixed text-primary font-label-caps text-label-caps">
+                        <span class="material-symbols-outlined text-[14px]">check_circle</span>
+                        AUTORIZADA @Orden.FechaAutorizacion?.ToString("dd MMM yyyy")
+                    </span>
+                }
+            </div>
+        </div>
+
+        <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+                <thead class="bg-surface-container-low border-b border-outline-variant">
+                    <tr>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary">Tipo</th>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary">Descripción</th>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary text-right">Cantidad</th>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary text-right">Precio Unit.</th>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary text-right">Subtotal</th>
+                        <th class="px-lg py-sm w-10"></th>
+                    </tr>
+                </thead>
+                <tbody class="font-body-md text-body-md text-on-surface divide-y divide-outline-variant">
+    @if (Orden.Detalles is not null)
+    {
+        @foreach (var detalle in Orden.Detalles.OrderBy(x => x.Id))
+        {
+            @if (EditandoDetalleId == detalle.Id && DetalleEditando is not null)
+            {
+                <tr class="bg-surface-container-lowest">
+                    <td class="px-lg py-sm text-on-surface-variant">@EtiquetaTipo(detalle.Tipo)</td>
+                    <td class="px-lg py-sm">
+                        <input class="w-full px-sm py-1 bg-surface border border-outline-variant rounded-md font-body-sm text-body-sm text-on-surface"
+                               @bind="DetalleEditando.Descripcion" @bind:event="oninput" />
+                    </td>
+                    <td class="px-lg py-sm">
+    <input type="number" step="1" min="1" class="w-full px-sm py-1 bg-surface border border-outline-variant rounded-md font-data-mono text-data-mono text-right"
+           @bind="DetalleEditando.Cantidad" @bind:event="oninput" />
+</td>
+                    <td class="px-lg py-sm">
+                        <input type="number" step="0.01" class="w-full px-sm py-1 bg-surface border border-outline-variant rounded-md font-data-mono text-data-mono text-right"
+                               @bind="DetalleEditando.PrecioUnitario" @bind:event="oninput" />
+                    </td>
+                    <td class="px-lg py-sm text-right font-data-mono text-data-mono font-medium">
+                        @((DetalleEditando.Cantidad * DetalleEditando.PrecioUnitario).ToString("C2"))
+                    </td>
+                    <td class="px-lg py-sm text-right">
+                        <div class="flex justify-end gap-xs">
+                            <button class="text-primary hover:opacity-80 transition-opacity" @onclick="GuardarEdicionAsync">
+                                <span class="material-symbols-outlined text-[18px]">check</span>
+                            </button>
+                            <button class="text-secondary hover:text-error transition-colors" @onclick="CancelarEdicion">
+                                <span class="material-symbols-outlined text-[18px]">close</span>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            }
+            else
+            {
+                <tr class="hover:bg-surface-container-lowest transition-colors">
+                    <td class="px-lg py-md text-on-surface-variant">@EtiquetaTipo(detalle.Tipo)</td>
+                    <td class="px-lg py-md">@detalle.Descripcion</td>
+                    <td class="px-lg py-md text-right font-data-mono text-data-mono">@detalle.Cantidad.ToString("0.##")</td>
+                    <td class="px-lg py-md text-right font-data-mono text-data-mono">@detalle.PrecioUnitario.ToString("C2")</td>
+                    <td class="px-lg py-md text-right font-data-mono text-data-mono font-medium">@detalle.Subtotal.ToString("C2")</td>
+                    <td class="px-lg py-md text-right">
+                        @if (!Orden.Autorizado)
+                        {
+                            <div class="flex justify-end gap-sm">
+                                <button class="text-secondary hover:text-primary transition-colors" @onclick="() => EmpezarEdicion(detalle)">
+                                    <span class="material-symbols-outlined text-[18px]">edit</span>
+                                </button>
+                                <button class="text-secondary hover:text-error transition-colors" @onclick="() => EliminarLineaAsync(detalle.Id)">
+                                    <span class="material-symbols-outlined text-[18px]">delete</span>
+                                </button>
+                            </div>
+                        }
+                    </td>
+                </tr>
+            }
+        }
+    }
+    @if (Orden.Detalles is null || !Orden.Detalles.Any())
+    {
+        <tr>
+            <td colspan="6" class="px-lg py-lg text-center text-secondary">Aún no hay líneas en la cotización.</td>
+        </tr>
+    }
+</tbody>
+            </table>
+        </div>
+
+        @if (!Orden.Autorizado)
+        {
+            <div class="p-lg border-t border-outline-variant bg-surface-container-low">
+                <EditForm Model="NuevaLinea" OnValidSubmit="AgregarLineaAsync">
+                    <div class="grid grid-cols-2 md:grid-cols-5 gap-sm items-end">
+                        <div>
+                            <label class="font-label-caps text-label-caps text-secondary block mb-xs">Tipo</label>
+                            <InputSelect class="w-full px-sm py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-sm text-on-surface"
+                                         @bind-Value="NuevaLinea.Tipo">
+                                <option value="@TipoDetalleOrden.Servicio">Servicio</option>
+                                <option value="@TipoDetalleOrden.Refaccion">Refacción</option>
+                                <option value="@TipoDetalleOrden.ManoDeObra">Mano de Obra</option>
+                            </InputSelect>
+                        </div>
+                        <div class="col-span-2 md:col-span-1">
+                            <label class="font-label-caps text-label-caps text-secondary block mb-xs">Descripción</label>
+                            @if (NuevaLinea.Tipo == TipoDetalleOrden.Refaccion)
+                            {
+                                <select class="w-full px-sm py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-sm text-on-surface"
+                                        @onchange="OnRefaccionSeleccionada">
+                                    <option value="0">Selecciona una refacción...</option>
+                                    @if (RefaccionesDisponibles is not null)
+                                    {
+                                        @foreach (var r in RefaccionesDisponibles)
+                                        {
+                                            <option value="@r.Id">@r.Nombre (@r.Existencia disp.)</option>
+                                        }
+                                    }
+                                    <option value="-1">Otra / Por pedir (no está en inventario)</option>
+                                </select>
+                                @if (RefaccionManual)
+                                {
+                                    <InputText class="w-full px-sm py-2 mt-xs bg-surface border border-outline-variant rounded-lg font-body-md text-body-sm text-on-surface"
+                                               placeholder="Escribe el nombre de la refacción..."
+                                               @bind-Value="NuevaLinea.Descripcion" />
+                                }
+                            }
+                            else
+                            {
+                                <InputText class="w-full px-sm py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-sm text-on-surface"
+                                           @bind-Value="NuevaLinea.Descripcion" />
+                            }
+                        </div>
+                        <div>
+                            <label class="font-label-caps text-label-caps text-secondary block mb-xs">Cantidad</label>
+                            <InputNumber class="w-full px-sm py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-sm text-on-surface"
+             @bind-Value="NuevaLinea.Cantidad" step="1" min="1" />
+                        </div>
+                        <div>
+                            <label class="font-label-caps text-label-caps text-secondary block mb-xs">Precio Unit.</label>
+                            <InputNumber class="w-full px-sm py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-sm text-on-surface"
+                                         @bind-Value="NuevaLinea.PrecioUnitario" step="0.01" />
+                        </div>
+                        <button type="submit" class="flex items-center justify-center gap-xs px-md py-2 bg-primary-container text-on-primary-container rounded-lg font-body-md text-body-sm font-semibold hover:opacity-90 transition-opacity h-[38px]">
+                            <span class="material-symbols-outlined text-[18px]">add</span>
+                            Agregar
+                        </button>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(ErrorLinea))
+                    {
+                        <p class="text-error text-body-sm mt-xs">@ErrorLinea</p>
+                    }
+                </EditForm>
+            </div>
+        }
+
+       <div class="p-lg border-t border-outline-variant flex flex-col items-end gap-xs">
+    <div class="flex justify-between w-full max-w-xs">
+        <span class="text-body-md text-secondary">Subtotal</span>
+        <span class="font-data-mono text-data-mono text-on-surface">@Orden.Subtotal.ToString("C2")</span>
+    </div>
+    <div class="flex justify-between items-center w-full max-w-xs gap-xs">
+        <span class="text-body-md text-secondary">Descuento</span>
+        @if (!Orden.Autorizado)
+        {
+            <div class="flex items-center gap-xs">
+                <input type="number" step="0.01" min="0" class="w-24 px-2 py-1 bg-surface border border-outline-variant rounded-md font-data-mono text-data-mono text-right text-body-sm"
+                       @bind="Orden.Descuento" @bind:event="oninput" />
+                <button class="text-secondary hover:text-primary transition-colors" @onclick="GuardarDescuentoAsync">
+                    <span class="material-symbols-outlined text-[16px]">check</span>
+                </button>
+            </div>
+        }
+        else
+        {
+            <span class="font-data-mono text-data-mono text-on-surface">-@Orden.Descuento.ToString("C2")</span>
+        }
+    </div>
+    @if (Orden.Descuento > 0 && !Orden.Autorizado)
+    {
+        <div class="w-full max-w-xs">
+            <input class="w-full px-2 py-1 bg-surface border border-outline-variant rounded-md font-body-sm text-body-sm"
+                   placeholder="Motivo del descuento (ej. Lavado de cortesía)"
+                   @bind="Orden.MotivoDescuento" @bind:event="oninput" @bind:after="GuardarDescuentoAsync" />
+        </div>
+    }
+    @if (Orden.Descuento > 0 && !string.IsNullOrWhiteSpace(Orden.MotivoDescuento) && Orden.Autorizado)
+    {
+        <p class="text-body-sm text-secondary w-full max-w-xs text-right">@Orden.MotivoDescuento</p>
+    }
+            <div class="flex justify-between w-full max-w-xs">
+                <span class="text-body-md text-secondary">Impuestos</span>
+                <span class="font-data-mono text-data-mono text-on-surface">@Orden.Impuestos.ToString("C2")</span>
+            </div>
+            <div class="flex justify-between w-full max-w-xs pt-xs border-t border-outline-variant">
+                <span class="font-headline-sm text-headline-sm text-on-surface">Total</span>
+                <span class="font-headline-sm text-headline-sm text-primary">@Orden.Total.ToString("C2")</span>
+            </div>
+
+            @if (!Orden.Autorizado && Orden.Detalles is not null && Orden.Detalles.Any())
+            {
+                <button class="mt-sm flex items-center gap-sm px-lg py-2 bg-primary text-on-primary rounded-lg font-body-md text-body-md font-semibold hover:opacity-90 shadow-sm transition-opacity"
+                        @onclick="AutorizarAsync">
+                    <span class="material-symbols-outlined text-[20px]">verified</span>
+                    Marcar como Autorizada por el Cliente
+                </button>
+            }
+        </div>
+    </div>
+
+    <!-- Pagos -->
+    <div class="bg-surface border border-outline-variant rounded-xl shadow-sm overflow-hidden flex flex-col">
+        <div class="p-lg border-b border-outline-variant flex justify-between items-center bg-surface-bright">
+            <h2 class="font-headline-sm text-headline-sm text-on-surface">Pagos</h2>
+            <div class="text-right">
+                <span class="block font-label-caps text-label-caps text-secondary">SALDO PENDIENTE</span>
+                <span class="@(SaldoPendiente > 0 ? "text-error" : "text-primary") font-headline-sm text-headline-sm">@SaldoPendiente.ToString("C2")</span>
+            </div>
+        </div>
+
+        <div class="overflow-x-auto">
+            @if (Pagos is null || !Pagos.Any())
+            {
+                <p class="p-lg text-body-md text-secondary">Aún no se han registrado pagos.</p>
+            }
+            else
+            {
+                <table class="w-full text-left border-collapse">
+                    <thead class="bg-surface-container-low border-b border-outline-variant">
+                        <tr>
+                            <th class="px-lg py-sm font-label-caps text-label-caps text-secondary">Fecha</th>
+                            <th class="px-lg py-sm font-label-caps text-label-caps text-secondary">Método</th>
+                            <th class="px-lg py-sm font-label-caps text-label-caps text-secondary">Referencia</th>
+                            <th class="px-lg py-sm font-label-caps text-label-caps text-secondary text-right">Monto</th>
+                        </tr>
+                    </thead>
+                    <tbody class="font-body-md text-body-md text-on-surface divide-y divide-outline-variant">
+                        @foreach (var pago in Pagos)
+                        {
+                            <tr class="hover:bg-surface-container-lowest transition-colors">
+                                <td class="px-lg py-md font-data-mono text-data-mono text-on-surface-variant">@pago.Fecha.ToString("dd MMM yyyy, HH:mm")</td>
+                                <td class="px-lg py-md">@EtiquetaMetodoPago(pago.MetodoPago)</td>
+                                <td class="px-lg py-md text-on-surface-variant">@(pago.Referencia ?? "—")</td>
+                                <td class="px-lg py-md text-right font-data-mono text-data-mono font-medium">@pago.Monto.ToString("C2")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+
+        @if (SaldoPendiente > 0)
+        {
+            <div class="p-lg border-t border-outline-variant bg-surface-container-low">
+                <EditForm Model="NuevoPago" OnValidSubmit="RegistrarPagoAsync">
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-sm items-end">
+                        <div>
+                            <label class="font-label-caps text-label-caps text-secondary block mb-xs">Método</label>
+                            <InputSelect class="w-full px-sm py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-sm text-on-surface"
+                                         @bind-Value="NuevoPago.MetodoPago">
+                                <option value="@MetodoPago.Efectivo">Efectivo</option>
+                                <option value="@MetodoPago.Tarjeta">Tarjeta</option>
+                                <option value="@MetodoPago.Transferencia">Transferencia</option>
+                                <option value="@MetodoPago.Otro">Otro</option>
+                            </InputSelect>
+                        </div>
+                        <div>
+                            <label class="font-label-caps text-label-caps text-secondary block mb-xs">Monto</label>
+                            <InputNumber class="w-full px-sm py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-sm text-on-surface"
+                                         @bind-Value="NuevoPago.Monto" step="0.01" />
+                        </div>
+                        <div class="col-span-2 md:col-span-1">
+                            <label class="font-label-caps text-label-caps text-secondary block mb-xs">Referencia</label>
+                            <InputText class="w-full px-sm py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-sm text-on-surface"
+                                       placeholder="Folio de terminal, etc." @bind-Value="NuevoPago.Referencia" />
+                        </div>
+                        <button type="submit" class="flex items-center justify-center gap-xs px-md py-2 bg-primary text-on-primary rounded-lg font-body-md text-body-sm font-semibold hover:opacity-90 transition-opacity h-[38px]">
+                            <span class="material-symbols-outlined text-[18px]">payments</span>
+                            Registrar pago
+                        </button>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(ErrorPago))
+                    {
+                        <p class="text-error text-body-sm mt-xs">@ErrorPago</p>
+                    }
+                </EditForm>
+            </div>
+        }
+        else if (Orden.Total > 0)
+        {
+            <div class="p-lg border-t border-outline-variant bg-primary-fixed flex items-center gap-sm">
+                <span class="material-symbols-outlined text-primary">check_circle</span>
+                <span class="text-body-md text-on-primary-fixed-variant font-semibold">Orden liquidada por completo.</span>
+            </div>
+        }
+    </div>
+
+    <!-- Entrega -->
+    <div class="bg-surface border border-outline-variant rounded-xl shadow-sm p-lg mt-lg">
+        <div class="flex justify-between items-center mb-md">
+            <h2 class="font-headline-sm text-headline-sm text-on-surface">Entrega del Vehículo</h2>
+            @if (Orden.Estado == EstadoOrden.Entregado)
+            {
+                <span class="inline-flex items-center gap-xs px-2 py-1 rounded-full bg-primary-fixed text-primary font-label-caps text-label-caps">
+                    <span class="material-symbols-outlined text-[14px]">check_circle</span>
+                    ENTREGADO
+                </span>
+            }
+        </div>
+
+        <div class="grid grid-cols-3 gap-xs mb-sm">
+            @if (Fotos is not null)
+            {
+                @foreach (var foto in Fotos.Where(f => f.Tipo == TipoFotografia.Entrega))
+                {
+                    <div class="relative group">
+                        <img src="@foto.RutaArchivo" alt="Foto de entrega" class="w-full h-16 object-cover rounded-md border border-outline-variant" />
+                        <button class="absolute top-1 right-1 bg-error text-on-error rounded-full w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                @onclick="() => EliminarFotoAsync(foto.Id)">
+                            <span class="material-symbols-outlined text-[14px]">close</span>
+                        </button>
+                    </div>
+                }
+            }
+        </div>
+        <InputFile OnChange="OnFotosEntregaSeleccionadas" multiple accept=".png,.jpg,.jpeg" class="text-body-sm" />
+
+        @if (SaldoPendiente > 0)
+        {
+            <p class="text-body-sm text-error mt-sm">⚠ Esta orden tiene un saldo pendiente de @SaldoPendiente.ToString("C2") — considera liquidarlo antes de entregar el vehículo.</p>
+        }
+
+        <div class="flex justify-end mt-md">
+            <a href="/ordenes/@Orden.Id/entrega.pdf" target="_blank"
+               class="inline-flex items-center gap-xs text-primary hover:opacity-80 transition-opacity font-body-sm text-body-sm font-semibold">
+                <span class="material-symbols-outlined text-[18px]">assignment_turned_in</span>
+                Descargar comprobante de entrega
+            </a>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public int OrdenId { get; set; }
+
+    private OrdenServicio? Orden;
+    private OrdenDetalle NuevaLinea = new() { Cantidad = 1 };
+    private string? ErrorLinea;
+    private List<Refaccion>? RefaccionesDisponibles;
+    private bool RefaccionManual = false;
+
+    private List<Pago>? Pagos;
+    private Pago NuevoPago = new();
+    private string? ErrorPago;
+
+    private decimal SaldoPendiente => Orden is null ? 0 : Orden.Total - (Pagos?.Sum(p => p.Monto) ?? 0);
+
+    private const decimal TasaImpuesto = 0m;
+
+    private List<FotografiaOrden>? Fotos;
+    private bool SubiendoFotos;
+    private int? EditandoDetalleId;
+private OrdenDetalle? DetalleEditando;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await CargarAsync();
+    }
+
+    private async Task CargarAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        Orden = await db.Ordenes
+            .Include(o => o.Cliente)
+            .Include(o => o.Vehiculo)
+            .Include(o => o.Detalles)
+            .FirstOrDefaultAsync(o => o.Id == OrdenId);
+
+        if (Orden is not null)
+        {
+            Pagos = await db.Pagos
+                .Where(p => p.OrdenId == Orden.Id)
+                .OrderByDescending(p => p.Fecha)
+                .ToListAsync();
+
+            Fotos = await db.FotografiasOrden
+                .Where(f => f.OrdenId == Orden.Id)
+                .OrderByDescending(f => f.Fecha)
+                .ToListAsync();
+        }
+
+        RefaccionesDisponibles = await db.Refacciones.Where(r => r.Activo).OrderBy(r => r.Nombre).ToListAsync();
+    }
+
+    private async Task GuardarDiagnosticoAsync()
+    {
+        if (Orden is null) return;
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        db.Attach(Orden);
+        db.Entry(Orden).Property(o => o.Diagnostico).IsModified = true;
+        await db.SaveChangesAsync();
+    }
+
+    private async Task CambiarEstadoAsync(ChangeEventArgs e)
+    {
+        if (Orden is null || !Enum.TryParse<EstadoOrden>(e.Value?.ToString(), out var nuevoEstado)) return;
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        db.Attach(Orden);
+        Orden.Estado = nuevoEstado;
+        db.Entry(Orden).Property(o => o.Estado).IsModified = true;
+        await db.SaveChangesAsync();
+    }
+
+    private void OnRefaccionSeleccionada(ChangeEventArgs e)
+    {
+        var valor = e.Value?.ToString();
+
+        if (valor == "-1")
+        {
+            RefaccionManual = true;
+            NuevaLinea.RefaccionId = null;
+            NuevaLinea.Descripcion = string.Empty;
+            NuevaLinea.CostoUnitario = 0;
+            NuevaLinea.PrecioUnitario = 0;
+            return;
+        }
+
+        RefaccionManual = false;
+
+        if (!int.TryParse(valor, out var refaccionId) || refaccionId <= 0 || RefaccionesDisponibles is null)
+        {
+            NuevaLinea.RefaccionId = null;
+            return;
+        }
+
+        var refaccion = RefaccionesDisponibles.FirstOrDefault(r => r.Id == refaccionId);
+        if (refaccion is null) return;
+
+        NuevaLinea.RefaccionId = refaccion.Id;
+        NuevaLinea.Descripcion = refaccion.Nombre;
+        NuevaLinea.CostoUnitario = refaccion.Costo;
+        NuevaLinea.PrecioUnitario = refaccion.Precio;
+    }
+
+    private async Task AgregarLineaAsync()
+    {
+        if (Orden is null) return;
+
+        if (string.IsNullOrWhiteSpace(NuevaLinea.Descripcion))
+        {
+            ErrorLinea = NuevaLinea.Tipo == TipoDetalleOrden.Refaccion ? "Selecciona una refacción." : "Agrega una descripción.";
+            return;
+        }
+
+        if (NuevaLinea.Cantidad <= 0 || NuevaLinea.PrecioUnitario < 0)
+        {
+            ErrorLinea = "Revisa la cantidad y el precio.";
+            return;
+        }
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        if (NuevaLinea.Tipo == TipoDetalleOrden.Refaccion && NuevaLinea.RefaccionId is int refaccionId)
+        {
+            var refaccionDb = await db.Refacciones.FirstOrDefaultAsync(r => r.Id == refaccionId);
+            if (refaccionDb is null)
+            {
+                ErrorLinea = "La refacción seleccionada ya no existe.";
+                return;
+            }
+
+            var cantidadEntera = (int)Math.Ceiling(NuevaLinea.Cantidad);
+            if (cantidadEntera > refaccionDb.Existencia)
+            {
+                ErrorLinea = $"No hay suficiente existencia (disponible: {refaccionDb.Existencia}).";
+                return;
+            }
+
+            refaccionDb.Existencia -= cantidadEntera;
+
+            db.MovimientosInventario.Add(new MovimientoInventario
+            {
+                TallerId = refaccionDb.TallerId,
+                RefaccionId = refaccionDb.Id,
+                Tipo = TipoMovimiento.Salida,
+                Cantidad = cantidadEntera,
+                CostoUnitario = refaccionDb.Costo,
+                Motivo = $"Usada en orden {Orden.Folio}",
+                Referencia = Orden.Folio
+            });
+        }
+
+        ErrorLinea = null;
+        NuevaLinea.Subtotal = NuevaLinea.Cantidad * NuevaLinea.PrecioUnitario;
+        NuevaLinea.OrdenId = Orden.Id;
+
+        db.OrdenDetalles.Add(NuevaLinea);
+        await db.SaveChangesAsync();
+
+        NuevaLinea = new OrdenDetalle { Cantidad = 1 };
+        RefaccionManual = false;
+        await RecalcularYGuardarAsync();
+    }
+
+    private async Task EliminarLineaAsync(int detalleId)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var linea = await db.OrdenDetalles.FindAsync(detalleId);
+        if (linea is null) return;
+
+        db.OrdenDetalles.Remove(linea);
+        await db.SaveChangesAsync();
+
+        await RecalcularYGuardarAsync();
+    }
+    private void EmpezarEdicion(OrdenDetalle detalle)
+{
+    EditandoDetalleId = detalle.Id;
+    DetalleEditando = new OrdenDetalle
+    {
+        Id = detalle.Id,
+        Descripcion = detalle.Descripcion,
+        Cantidad = detalle.Cantidad,
+        PrecioUnitario = detalle.PrecioUnitario
+    };
+}
+
+private void CancelarEdicion()
+{
+    EditandoDetalleId = null;
+    DetalleEditando = null;
+}
+
+private async Task GuardarEdicionAsync()
+{
+    if (DetalleEditando is null) return;
+
+    await using var db = await DbFactory.CreateDbContextAsync();
+    var detalleDb = await db.OrdenDetalles.FindAsync(DetalleEditando.Id);
+    if (detalleDb is null) return;
+
+    detalleDb.Descripcion = DetalleEditando.Descripcion;
+    detalleDb.Cantidad = DetalleEditando.Cantidad;
+    detalleDb.PrecioUnitario = DetalleEditando.PrecioUnitario;
+    detalleDb.Subtotal = DetalleEditando.Cantidad * DetalleEditando.PrecioUnitario;
+
+    await db.SaveChangesAsync();
+
+    EditandoDetalleId = null;
+    DetalleEditando = null;
+
+    await RecalcularYGuardarAsync();
+}
+
+    private async Task RecalcularYGuardarAsync()
+    {
+        if (Orden is null) return;
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        var detalles = await db.OrdenDetalles.Where(d => d.OrdenId == Orden.Id).ToListAsync();
+        var subtotal = detalles.Sum(d => d.Subtotal);
+        var impuestos = Math.Round((subtotal - Orden.Descuento) * TasaImpuesto, 2);
+        var total = subtotal - Orden.Descuento + impuestos;
+
+        var ordenDb = await db.Ordenes.FirstAsync(o => o.Id == Orden.Id);
+        ordenDb.Subtotal = subtotal;
+        ordenDb.Impuestos = impuestos;
+        ordenDb.Total = total;
+        await db.SaveChangesAsync();
+
+        await CargarAsync();
+    }
+    private async Task GuardarDescuentoAsync()
+{
+    if (Orden is null) return;
+
+    await using var db = await DbFactory.CreateDbContextAsync();
+    var ordenDb = await db.Ordenes.FirstAsync(o => o.Id == Orden.Id);
+    ordenDb.Descuento = Orden.Descuento;
+    ordenDb.MotivoDescuento = Orden.MotivoDescuento;
+    await db.SaveChangesAsync();
+
+    await RecalcularYGuardarAsync();
+}
+
+    private async Task AutorizarAsync()
+    {
+        if (Orden is null) return;
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var ordenDb = await db.Ordenes.FirstAsync(o => o.Id == Orden.Id);
+        ordenDb.Autorizado = true;
+        ordenDb.FechaAutorizacion = DateTime.UtcNow;
+        ordenDb.Estado = EstadoOrden.Autorizado;
+        await db.SaveChangesAsync();
+
+        await CargarAsync();
+    }
+
+    private async Task RegistrarPagoAsync()
+    {
+        if (Orden is null) return;
+
+        if (NuevoPago.Monto <= 0)
+        {
+            ErrorPago = "El monto debe ser mayor a cero.";
+            return;
+        }
+
+        if (NuevoPago.Monto > SaldoPendiente)
+        {
+            ErrorPago = $"El monto excede el saldo pendiente ({SaldoPendiente:C2}).";
+            return;
+        }
+
+        ErrorPago = null;
+        NuevoPago.TallerId = Orden.TallerId;
+        NuevoPago.OrdenId = Orden.Id;
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        db.Pagos.Add(NuevoPago);
+        await db.SaveChangesAsync();
+
+        NuevoPago = new Pago();
+        await CargarAsync();
+    }
+
+    private async Task EliminarFotoAsync(int fotoId)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var foto = await db.FotografiasOrden.FindAsync(fotoId);
+        if (foto is null) return;
+
+        var rutaFisica = Path.Combine(Environment.WebRootPath, foto.RutaArchivo.TrimStart('/'));
+        if (File.Exists(rutaFisica))
+        {
+            File.Delete(rutaFisica);
+        }
+
+        db.FotografiasOrden.Remove(foto);
+        await db.SaveChangesAsync();
+        await CargarAsync();
+    }
+
+    private static string EtiquetaTipo(TipoDetalleOrden tipo) => tipo switch
+    {
+        TipoDetalleOrden.Servicio => "Servicio",
+        TipoDetalleOrden.Refaccion => "Refacción",
+        TipoDetalleOrden.ManoDeObra => "Mano de Obra",
+        _ => tipo.ToString()
+    };
+
+    private static string EtiquetaMetodoPago(MetodoPago metodo) => metodo switch
+    {
+        MetodoPago.Efectivo => "Efectivo",
+        MetodoPago.Tarjeta => "Tarjeta",
+        MetodoPago.Transferencia => "Transferencia",
+        MetodoPago.Otro => "Otro",
+        _ => metodo.ToString()
+    };
+
+    private static string EtiquetaEstado(EstadoOrden estado) => estado switch
+    {
+        EstadoOrden.Recibido => "Recibido",
+        EstadoOrden.Diagnostico => "Diagnóstico",
+        EstadoOrden.Cotizacion => "Cotización",
+        EstadoOrden.EsperandoAutorizacion => "Esperando Autorización",
+        EstadoOrden.Autorizado => "Autorizado",
+        EstadoOrden.EnReparacion => "En Reparación",
+        EstadoOrden.EsperandoRefaccion => "Esperando Refacción",
+        EstadoOrden.Pausado => "Pausado",
+        EstadoOrden.Terminado => "Terminado",
+        EstadoOrden.ListoParaEntrega => "Listo para Entrega",
+        EstadoOrden.Entregado => "Entregado",
+        EstadoOrden.Cancelado => "Cancelado",
+        _ => estado.ToString()
+    };
+
+    private static string BadgeClase(EstadoOrden estado)
+    {
+        const string baseClase = "inline-flex items-center gap-xs px-2 py-1 rounded-full font-label-caps text-label-caps whitespace-nowrap";
+
+        return estado switch
+        {
+            EstadoOrden.Recibido or EstadoOrden.Diagnostico or EstadoOrden.Cotizacion
+                => $"{baseClase} bg-surface-container text-secondary border border-outline-variant",
+            EstadoOrden.EsperandoAutorizacion or EstadoOrden.EsperandoRefaccion or EstadoOrden.Pausado
+                => $"{baseClase} bg-secondary-fixed text-on-secondary-fixed-variant border border-secondary-fixed-dim",
+            EstadoOrden.Autorizado or EstadoOrden.EnReparacion
+                => $"{baseClase} bg-primary-fixed text-primary",
+            EstadoOrden.Terminado or EstadoOrden.ListoParaEntrega or EstadoOrden.Entregado
+                => $"{baseClase} bg-surface-container-highest text-on-surface border border-outline-variant",
+            EstadoOrden.Cancelado
+                => $"{baseClase} bg-error-container text-on-error-container",
+            _ => baseClase
+        };
+    }
+
+    private Task OnFotosRecepcionSeleccionadas(InputFileChangeEventArgs e) => SubirFotosAsync(e, TipoFotografia.Recepcion);
+    private Task OnFotosEntregaSeleccionadas(InputFileChangeEventArgs e) => SubirFotosAsync(e, TipoFotografia.Entrega);
+
+    private async Task SubirFotosAsync(InputFileChangeEventArgs e, TipoFotografia tipo)
+    {
+        if (Orden is null) return;
+
+        SubiendoFotos = true;
+
+        try
+        {
+            var carpeta = Path.Combine(Environment.WebRootPath, "uploads", "ordenes", Orden.Id.ToString());
+            Directory.CreateDirectory(carpeta);
+
+            await using var db = await DbFactory.CreateDbContextAsync();
+
+            foreach (var archivo in e.GetMultipleFiles(10))
+            {
+                if (archivo.Size > 3 * 1024 * 1024) continue;
+
+                var nombreArchivo = $"{Guid.NewGuid()}{Path.GetExtension(archivo.Name)}";
+                var rutaCompleta = Path.Combine(carpeta, nombreArchivo);
+
+                await using var stream = archivo.OpenReadStream(3 * 1024 * 1024);
+                await using var fileStream = new FileStream(rutaCompleta, FileMode.Create);
+                await stream.CopyToAsync(fileStream);
+
+                db.FotografiasOrden.Add(new FotografiaOrden
+                {
+                    TallerId = Orden.TallerId,
+                    OrdenId = Orden.Id,
+                    Tipo = tipo,
+                    RutaArchivo = $"/uploads/ordenes/{Orden.Id}/{nombreArchivo}"
+                });
+            }
+
+            await db.SaveChangesAsync();
+            await CargarAsync();
+        }
+        finally
+        {
+            SubiendoFotos = false;
+        }
+    }
+}

@@ -1,0 +1,140 @@
+@page "/finanzas"
+@attribute [Authorize(Roles = "Administrador,Secretaria")]
+
+@using Microsoft.EntityFrameworkCore
+@using TallerManager.Domain.Entities
+@using TallerManager.Infrastructure.Data
+@using Microsoft.AspNetCore.Authorization
+
+@inject IDbContextFactory<TallerManagerDbContext> DbFactory
+@inject NavigationManager Nav
+
+<PageTitle>Finanzas</PageTitle>
+
+<div class="mb-xl">
+    <h1 class="font-display-lg text-display-lg text-on-surface mb-xs">Finanzas</h1>
+    <p class="font-body-md text-body-md text-secondary">Resumen de ingresos, costos y utilidad del taller.</p>
+</div>
+
+@if (Resumen is null)
+{
+    <p class="text-body-md text-secondary">Cargando...</p>
+}
+else
+{
+    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-lg mb-lg">
+        <div class="bg-surface border border-outline-variant rounded-xl shadow-sm p-lg">
+            <span class="block font-label-caps text-label-caps text-secondary mb-xs">INGRESOS (COBRADO)</span>
+            <span class="block font-display-lg text-display-lg text-on-surface">@Resumen.Ingresos.ToString("C2")</span>
+        </div>
+        <div class="bg-surface border border-outline-variant rounded-xl shadow-sm p-lg">
+            <span class="block font-label-caps text-label-caps text-secondary mb-xs">COSTO DE REFACCIONES</span>
+            <span class="block font-display-lg text-display-lg text-on-surface">@Resumen.CostoRefacciones.ToString("C2")</span>
+        </div>
+        <div class="bg-primary-fixed border border-primary rounded-xl shadow-sm p-lg">
+            <span class="block font-label-caps text-label-caps text-on-primary-fixed-variant mb-xs">UTILIDAD</span>
+            <span class="block font-display-lg text-display-lg text-primary">@Resumen.Utilidad.ToString("C2")</span>
+        </div>
+        <div class="bg-error-container border border-error rounded-xl shadow-sm p-lg">
+            <span class="block font-label-caps text-label-caps text-on-error-container mb-xs">PAGOS PENDIENTES</span>
+            <span class="block font-display-lg text-display-lg text-on-error-container">@Resumen.PagosPendientes.ToString("C2")</span>
+        </div>
+    </div>
+
+    <div class="bg-surface border border-outline-variant rounded-xl shadow-sm overflow-hidden flex flex-col mb-lg">
+        <div class="p-lg border-b border-outline-variant">
+            <h2 class="font-headline-sm text-headline-sm text-on-surface">Órdenes con saldo pendiente</h2>
+        </div>
+        <div class="overflow-x-auto">
+            @if (!OrdenesConSaldo.Any())
+            {
+                <p class="p-lg text-body-md text-secondary">No hay órdenes con saldo pendiente. 🎉</p>
+            }
+            else
+            {
+                <table class="w-full text-left border-collapse">
+                    <thead class="bg-surface-container-low border-b border-outline-variant">
+                        <tr>
+                            <th class="px-lg py-sm font-label-caps text-label-caps text-secondary">Folio</th>
+                            <th class="px-lg py-sm font-label-caps text-label-caps text-secondary">Cliente</th>
+                            <th class="px-lg py-sm font-label-caps text-label-caps text-secondary text-right">Total</th>
+                            <th class="px-lg py-sm font-label-caps text-label-caps text-secondary text-right">Pagado</th>
+                            <th class="px-lg py-sm font-label-caps text-label-caps text-secondary text-right">Pendiente</th>
+                        </tr>
+                    </thead>
+                    <tbody class="font-body-md text-body-md text-on-surface divide-y divide-outline-variant">
+                        @foreach (var o in OrdenesConSaldo)
+                        {
+                            <tr class="hover:bg-surface-container-lowest transition-colors cursor-pointer" @onclick='() => Nav.NavigateTo($"/ordenes/{o.OrdenId}")'>
+                                <td class="px-lg py-md font-data-mono text-data-mono text-primary font-semibold">@o.Folio</td>
+                                <td class="px-lg py-md text-on-surface-variant">@o.Cliente</td>
+                                <td class="px-lg py-md text-right font-data-mono text-data-mono">@o.Total.ToString("C2")</td>
+                                <td class="px-lg py-md text-right font-data-mono text-data-mono text-primary">@o.Pagado.ToString("C2")</td>
+                                <td class="px-lg py-md text-right font-data-mono text-data-mono text-error font-semibold">@o.Pendiente.ToString("C2")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private record ResumenFinanciero(decimal Ingresos, decimal CostoRefacciones, decimal Utilidad, decimal PagosPendientes);
+    private record OrdenConSaldo(int OrdenId, string Folio, string Cliente, decimal Total, decimal Pagado, decimal Pendiente);
+
+    private ResumenFinanciero? Resumen;
+    private List<OrdenConSaldo> OrdenesConSaldo = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        var ingresos = await db.Pagos.SumAsync(p => (decimal?)p.Monto) ?? 0;
+
+        var costoRefacciones = await db.OrdenDetalles
+            .Where(d => d.Tipo == TipoDetalleOrden.Refaccion)
+            .SumAsync(d => (decimal?)(d.Cantidad * 0)) ?? 0;
+        // Nota: el costo real de refacciones se calcula abajo, ligando cada línea a su refacción por nombre no es confiable;
+        // por ahora se usa el costo capturado en Inventario como aproximación agregada.
+        var costoTotalInventarioUsado = await db.MovimientosInventario
+            .Where(m => m.Tipo == TipoMovimiento.Salida)
+            .SumAsync(m => (decimal?)(m.Cantidad * (m.CostoUnitario ?? 0))) ?? 0;
+
+        var ordenes = await db.Ordenes
+            .Include(o => o.Cliente)
+            .Where(o => o.Activo)
+            .ToListAsync();
+
+        var pagosPorOrden = await db.Pagos
+            .GroupBy(p => p.OrdenId)
+            .Select(g => new { OrdenId = g.Key, Total = g.Sum(p => p.Monto) })
+            .ToListAsync();
+
+        var pagosPendientesTotal = 0m;
+        OrdenesConSaldo = new List<OrdenConSaldo>();
+
+        foreach (var orden in ordenes)
+        {
+            var pagado = pagosPorOrden.FirstOrDefault(p => p.OrdenId == orden.Id)?.Total ?? 0;
+            var pendiente = orden.Total - pagado;
+
+            if (pendiente > 0.01m)
+            {
+                pagosPendientesTotal += pendiente;
+                OrdenesConSaldo.Add(new OrdenConSaldo(
+                    orden.Id, orden.Folio, orden.Cliente?.Nombre ?? "—", orden.Total, pagado, pendiente));
+            }
+        }
+
+        OrdenesConSaldo = OrdenesConSaldo.OrderByDescending(o => o.Pendiente).ToList();
+
+        Resumen = new ResumenFinanciero(
+            Ingresos: ingresos,
+            CostoRefacciones: costoTotalInventarioUsado,
+            Utilidad: ingresos - costoTotalInventarioUsado,
+            PagosPendientes: pagosPendientesTotal
+        );
+    }
+}

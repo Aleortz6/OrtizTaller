@@ -1,0 +1,309 @@
+@page "/agenda"
+@attribute [Authorize(Roles = "Administrador,Secretaria")]
+
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.EntityFrameworkCore
+@using TallerManager.Domain.Entities
+@using TallerManager.Infrastructure.Data
+
+@inject IDbContextFactory<TallerManagerDbContext> DbFactory
+
+<PageTitle>Agenda</PageTitle>
+
+<div class="flex flex-col md:flex-row md:items-center justify-between mb-xl gap-md">
+    <div>
+        <h1 class="font-display-lg text-display-lg text-on-surface mb-xs">Agenda</h1>
+        <p class="font-body-md text-body-md text-secondary">Citas, recepciones y entregas programadas.</p>
+    </div>
+    <div class="flex items-center gap-md">
+        <input type="date" class="px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+               @bind="FechaSeleccionada" @bind:event="onchange" @bind:after="CargarAsync" />
+        <button class="flex items-center gap-sm px-md py-2 bg-primary-container text-on-primary-container rounded-lg font-body-md text-body-md font-semibold hover:opacity-90 shadow-sm transition-opacity"
+                @onclick="AbrirModalNueva">
+            <span class="material-symbols-outlined text-[20px]">event</span>
+            Nueva Cita
+        </button>
+    </div>
+</div>
+
+<div class="bg-surface border border-outline-variant rounded-xl shadow-sm overflow-hidden flex flex-col">
+    <div class="p-lg border-b border-outline-variant">
+        <h2 class="font-headline-sm text-headline-sm text-on-surface">@FechaSeleccionada.ToString("dddd, dd 'de' MMMM 'de' yyyy")</h2>
+    </div>
+    <div class="flex flex-col divide-y divide-outline-variant">
+        @if (ListaCitas is null)
+        {
+            <p class="p-lg text-body-md text-secondary">Cargando...</p>
+        }
+        else if (!ListaCitas.Any())
+        {
+            <p class="p-lg text-body-md text-secondary">No hay citas programadas para este día.</p>
+        }
+        else
+        {
+            @foreach (var cita in ListaCitas)
+            {
+                <div class="p-lg flex items-center gap-md hover:bg-surface-container-lowest transition-colors">
+                    <div class="w-16 flex-shrink-0 text-center">
+                        <span class="block font-data-mono text-data-mono text-on-surface font-bold">@cita.FechaHora.ToString("HH:mm")</span>
+                        <span class="block text-body-sm text-secondary">@cita.DuracionMinutos min</span>
+                    </div>
+                    <div class="flex-1">
+                        <div class="flex items-center gap-sm mb-xs">
+                            <span class="font-body-md text-body-md text-on-surface font-semibold">@cita.Titulo</span>
+                            <span class="@BadgeTipoClase(cita.Tipo)">@EtiquetaTipo(cita.Tipo)</span>
+                        </div>
+                        @if (cita.Cliente is not null || cita.Vehiculo is not null)
+                        {
+                            <p class="text-body-sm text-secondary">
+                                @(cita.Cliente?.Nombre) @(cita.Vehiculo is not null ? $"· {cita.Vehiculo.Marca} {cita.Vehiculo.Modelo}" : "")
+                            </p>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(cita.Descripcion))
+                        {
+                            <p class="text-body-sm text-secondary">@cita.Descripcion</p>
+                        }
+                    </div>
+                    <div class="flex items-center gap-sm">
+                        <select class="px-2 py-1 bg-surface border border-outline-variant rounded-lg font-body-sm text-body-sm text-on-surface"
+                                @onchange="e => CambiarEstadoAsync(cita.Id, e)">
+                            @foreach (var estado in Enum.GetValues<EstadoCita>())
+                            {
+                                <option value="@estado" selected="@(estado == cita.Estado)">@EtiquetaEstado(estado)</option>
+                            }
+                        </select>
+                        <button class="text-secondary hover:text-error transition-colors" @onclick="() => EliminarAsync(cita.Id)">
+                            <span class="material-symbols-outlined text-[18px]">delete</span>
+                        </button>
+                    </div>
+                </div>
+            }
+        }
+    </div>
+</div>
+
+@if (MostrarModal)
+{
+    <div class="fixed inset-0 bg-inverse-surface/50 z-[100] flex items-center justify-center p-md">
+        <div class="bg-surface rounded-xl shadow-lg w-full max-w-md flex flex-col">
+            <div class="flex items-center justify-between px-lg py-md border-b border-outline-variant">
+                <h2 class="font-headline-sm text-headline-sm text-on-surface">Nueva cita</h2>
+                <button class="text-on-surface-variant hover:bg-surface-container rounded-full p-1 transition-colors" @onclick="CerrarModal">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <EditForm Model="NuevaCita" OnValidSubmit="GuardarAsync">
+                <DataAnnotationsValidator />
+                <div class="px-lg py-md flex flex-col gap-md">
+                    <div>
+                        <label class="font-label-caps text-label-caps text-secondary block mb-xs">Título *</label>
+                        <InputText class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                   @bind-Value="NuevaCita.Titulo" />
+                        <ValidationMessage For="() => NuevaCita.Titulo" class="text-error text-body-sm mt-xs block" />
+                    </div>
+                    <div class="grid grid-cols-2 gap-md">
+                        <div>
+                            <label class="font-label-caps text-label-caps text-secondary block mb-xs">Fecha y hora</label>
+                            <InputDate Type="InputDateType.DateTimeLocal" class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                       @bind-Value="NuevaCita.FechaHora" />
+                        </div>
+                        <div>
+                            <label class="font-label-caps text-label-caps text-secondary block mb-xs">Duración (min)</label>
+                            <InputNumber class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                         @bind-Value="NuevaCita.DuracionMinutos" />
+                        </div>
+                    </div>
+                    <div>
+                        <label class="font-label-caps text-label-caps text-secondary block mb-xs">Tipo</label>
+                        <InputSelect class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                     @bind-Value="NuevaCita.Tipo">
+                            @foreach (var tipo in Enum.GetValues<TipoCita>())
+                            {
+                                <option value="@tipo">@EtiquetaTipo(tipo)</option>
+                            }
+                        </InputSelect>
+                    </div>
+                    <div>
+                        <label class="font-label-caps text-label-caps text-secondary block mb-xs">Cliente (opcional)</label>
+                        <select class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface"
+                                @onchange="OnClienteSeleccionado">
+                            <option value="0">Sin cliente asociado</option>
+                            @if (Clientes is not null)
+                            {
+                                @foreach (var c in Clientes)
+                                {
+                                    <option value="@c.Id">@c.Nombre</option>
+                                }
+                            }
+                        </select>
+                    </div>
+                    @if (VehiculosDelCliente is not null && VehiculosDelCliente.Any())
+                    {
+                        <div>
+                            <label class="font-label-caps text-label-caps text-secondary block mb-xs">Vehículo (opcional)</label>
+                            <InputSelect class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface"
+                                         @bind-Value="VehiculoIdSeleccionado">
+                                <option value="0">Sin vehículo asociado</option>
+                                @foreach (var v in VehiculosDelCliente)
+                                {
+                                    <option value="@v.Id">@v.Marca @v.Modelo</option>
+                                }
+                            </InputSelect>
+                        </div>
+                    }
+                    <div>
+                        <label class="font-label-caps text-label-caps text-secondary block mb-xs">Notas</label>
+                        <InputTextArea class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                       @bind-Value="NuevaCita.Descripcion" />
+                    </div>
+                </div>
+                <div class="flex justify-end gap-sm px-lg py-md border-t border-outline-variant">
+                    <button type="button" class="px-md py-2 rounded-lg font-body-md text-body-md text-on-surface-variant hover:bg-surface-container transition-colors" @onclick="CerrarModal">
+                        Cancelar
+                    </button>
+                    <button type="submit" class="px-md py-2 bg-primary-container text-on-primary-container rounded-lg font-body-md text-body-md font-semibold hover:opacity-90 shadow-sm transition-opacity">
+                        Guardar
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Cita>? ListaCitas;
+    private List<Cliente>? Clientes;
+    private List<Vehiculo>? VehiculosDelCliente;
+    private int ClienteIdSeleccionado = 0;
+    private int VehiculoIdSeleccionado = 0;
+    private DateTime FechaSeleccionada = DateTime.Today;
+    private bool MostrarModal = false;
+    private Cita NuevaCita = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarAsync();
+    }
+
+    private async Task CargarAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        var inicio = FechaSeleccionada.Date;
+        var fin = inicio.AddDays(1);
+
+        ListaCitas = await db.Citas
+            .Include(c => c.Cliente)
+            .Include(c => c.Vehiculo)
+            .Where(c => c.Activo && c.FechaHora >= inicio && c.FechaHora < fin)
+            .OrderBy(c => c.FechaHora)
+            .ToListAsync();
+    }
+
+    private async Task AbrirModalNueva()
+    {
+        NuevaCita = new Cita { FechaHora = FechaSeleccionada.Date.AddHours(9) };
+        ClienteIdSeleccionado = 0;
+        VehiculoIdSeleccionado = 0;
+        VehiculosDelCliente = null;
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        Clientes = await db.Clientes.Where(c => c.Activo).OrderBy(c => c.Nombre).ToListAsync();
+
+        MostrarModal = true;
+    }
+
+    private void CerrarModal() => MostrarModal = false;
+
+    private async Task OnClienteSeleccionado(ChangeEventArgs e)
+    {
+        ClienteIdSeleccionado = int.TryParse(e.Value?.ToString(), out var id) ? id : 0;
+        VehiculoIdSeleccionado = 0;
+
+        if (ClienteIdSeleccionado <= 0)
+        {
+            VehiculosDelCliente = null;
+            return;
+        }
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        VehiculosDelCliente = await db.Vehiculos
+            .Where(v => v.ClienteId == ClienteIdSeleccionado && v.Activo)
+            .OrderBy(v => v.Marca)
+            .ToListAsync();
+    }
+
+    private async Task GuardarAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        var taller = await db.Talleres.OrderBy(t => t.FechaCreacion).FirstOrDefaultAsync();
+        if (taller is null) return;
+
+        NuevaCita.TallerId = taller.Id;
+        NuevaCita.ClienteId = ClienteIdSeleccionado > 0 ? ClienteIdSeleccionado : null;
+        NuevaCita.VehiculoId = VehiculoIdSeleccionado > 0 ? VehiculoIdSeleccionado : null;
+
+        db.Citas.Add(NuevaCita);
+        await db.SaveChangesAsync();
+
+        MostrarModal = false;
+        await CargarAsync();
+    }
+
+    private async Task CambiarEstadoAsync(int citaId, ChangeEventArgs e)
+    {
+        if (!Enum.TryParse<EstadoCita>(e.Value?.ToString(), out var nuevoEstado)) return;
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var cita = await db.Citas.FindAsync(citaId);
+        if (cita is null) return;
+
+        cita.Estado = nuevoEstado;
+        await db.SaveChangesAsync();
+        await CargarAsync();
+    }
+
+    private async Task EliminarAsync(int citaId)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var cita = await db.Citas.FindAsync(citaId);
+        if (cita is null) return;
+
+        cita.Activo = false;
+        await db.SaveChangesAsync();
+        await CargarAsync();
+    }
+
+    private static string EtiquetaTipo(TipoCita tipo) => tipo switch
+    {
+        TipoCita.Cita => "Cita",
+        TipoCita.Recepcion => "Recepción",
+        TipoCita.Diagnostico => "Diagnóstico",
+        TipoCita.Entrega => "Entrega",
+        TipoCita.Servicio => "Servicio",
+        _ => tipo.ToString()
+    };
+
+    private static string EtiquetaEstado(EstadoCita estado) => estado switch
+    {
+        EstadoCita.Pendiente => "Pendiente",
+        EstadoCita.Confirmada => "Confirmada",
+        EstadoCita.Completada => "Completada",
+        EstadoCita.Cancelada => "Cancelada",
+        _ => estado.ToString()
+    };
+
+    private static string BadgeTipoClase(TipoCita tipo)
+    {
+        const string baseClase = "inline-flex px-2 py-1 rounded-full font-label-caps text-label-caps";
+        return tipo switch
+        {
+            TipoCita.Recepcion => $"{baseClase} bg-primary-fixed text-primary",
+            TipoCita.Entrega => $"{baseClase} bg-secondary-fixed text-on-secondary-fixed-variant",
+            TipoCita.Diagnostico => $"{baseClase} bg-surface-container text-secondary",
+            _ => $"{baseClase} bg-surface-container-high text-on-surface"
+        };
+    }
+}

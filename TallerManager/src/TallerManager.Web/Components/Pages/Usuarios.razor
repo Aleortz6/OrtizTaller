@@ -1,0 +1,320 @@
+@page "/usuarios"
+@attribute [Authorize(Roles = "Administrador")]
+
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using TallerManager.Domain.Entities
+@using TallerManager.Infrastructure.Data
+
+@inject UserManager<ApplicationUser> UserManager
+@inject RoleManager<IdentityRole> RoleManager
+@inject IDbContextFactory<TallerManagerDbContext> DbFactory
+
+<PageTitle>Usuarios</PageTitle>
+
+<div class="mb-xl">
+    <h1 class="font-display-lg text-display-lg text-on-surface mb-xs">Configuración</h1>
+    <p class="font-body-md text-body-md text-secondary">Datos del taller, usuarios y personal.</p>
+</div>
+
+<ConfiguracionTabs />
+
+<div class="flex flex-col md:flex-row md:items-center justify-between mb-xl gap-md">
+    <div>
+        <h2 class="font-headline-sm text-headline-sm text-on-surface mb-xs">Usuarios</h2>
+        <p class="font-body-md text-body-md text-secondary">Gestione las cuentas de acceso al sistema.</p>
+    </div>
+    <button class="flex items-center gap-sm px-md py-2 bg-primary-container text-on-primary-container rounded-lg font-body-md text-body-md font-semibold hover:opacity-90 shadow-sm transition-opacity"
+            @onclick="AbrirModalNuevo">
+        <span class="material-symbols-outlined text-[20px]">person_add</span>
+        Nuevo Usuario
+    </button>
+</div>
+
+<div class="bg-surface border border-outline-variant rounded-xl shadow-sm overflow-hidden flex flex-col">
+    <div class="overflow-x-auto">
+        @if (ListaUsuarios is null)
+        {
+            <p class="p-lg text-body-md text-secondary">Cargando...</p>
+        }
+        else
+        {
+            <table class="w-full text-left border-collapse">
+                <thead class="bg-surface-container-low border-b border-outline-variant">
+                    <tr>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary">Nombre</th>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary">Correo</th>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary">Rol</th>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary">Estado</th>
+                        <th class="px-lg py-sm w-10"></th>
+                    </tr>
+                </thead>
+                <tbody class="font-body-md text-body-md text-on-surface divide-y divide-outline-variant">
+                    @foreach (var u in ListaUsuarios)
+                    {
+                        <tr class="hover:bg-surface-container-lowest transition-colors">
+                            <td class="px-lg py-md font-semibold">@u.NombreCompleto</td>
+                            <td class="px-lg py-md text-on-surface-variant">@u.Email</td>
+                            <td class="px-lg py-md">
+                                <span class="inline-flex px-2 py-1 rounded-full bg-surface-container text-secondary font-label-caps text-label-caps">
+                                    @u.Rol
+                                </span>
+                            </td>
+                            <td class="px-lg py-md">
+                                @if (u.Activo)
+                                {
+                                    <span class="inline-flex items-center gap-xs px-2 py-1 rounded-full bg-primary-fixed text-primary font-label-caps text-label-caps">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
+                                        ACTIVO
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="inline-flex items-center gap-xs px-2 py-1 rounded-full bg-surface-variant text-on-surface-variant font-label-caps text-label-caps">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-outline"></span>
+                                        INACTIVO
+                                    </span>
+                                }
+                            </td>
+                            <td class="px-lg py-md text-right">
+    <div class="flex justify-end gap-md">
+        <button class="text-secondary hover:text-primary transition-colors text-body-sm font-semibold"
+                @onclick="() => AbrirModalReset(u.Id, u.NombreCompleto)">
+            Restablecer contraseña
+        </button>
+        <button class="text-secondary hover:text-primary transition-colors text-body-sm font-semibold"
+                @onclick="() => CambiarEstadoAsync(u.Id)">
+            @(u.Activo ? "Desactivar" : "Activar")
+        </button>
+    </div>
+</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+</div>
+
+@if (MostrarModalReset)
+{
+    <div class="fixed inset-0 bg-inverse-surface/50 z-[100] flex items-center justify-center p-md">
+        <div class="bg-surface rounded-xl shadow-lg w-full max-w-sm flex flex-col">
+            <div class="flex items-center justify-between px-lg py-md border-b border-outline-variant">
+                <h2 class="font-headline-sm text-headline-sm text-on-surface">Restablecer contraseña</h2>
+                <button class="text-on-surface-variant hover:bg-surface-container rounded-full p-1 transition-colors" @onclick="CerrarModalReset">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <div class="px-lg py-md flex flex-col gap-md">
+                <p class="text-body-md text-secondary">Usuario: <span class="font-semibold text-on-surface">@NombreUsuarioReset</span></p>
+                <div>
+                    <label class="font-label-caps text-label-caps text-secondary block mb-xs">Nueva contraseña temporal</label>
+                    <input type="text" class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-data-mono text-data-mono text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                           @bind="PasswordReset" @bind:event="oninput" />
+                    <p class="text-body-sm text-secondary mt-xs">Mínimo 6 caracteres, al menos un número.</p>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(ErrorReset))
+                {
+                    <p class="text-error text-body-sm">@ErrorReset</p>
+                }
+            </div>
+            <div class="flex justify-end gap-sm px-lg py-md border-t border-outline-variant">
+                <button type="button" class="px-md py-2 rounded-lg font-body-md text-body-md text-on-surface-variant hover:bg-surface-container transition-colors" @onclick="CerrarModalReset">
+                    Cancelar
+                </button>
+                <button type="button" class="px-md py-2 bg-primary-container text-on-primary-container rounded-lg font-body-md text-body-md font-semibold hover:opacity-90 shadow-sm transition-opacity"
+                        @onclick="RestablecerPasswordAsync">
+                    Restablecer
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (MostrarModal)
+{
+    <div class="fixed inset-0 bg-inverse-surface/50 z-[100] flex items-center justify-center p-md">
+        <div class="bg-surface rounded-xl shadow-lg w-full max-w-md flex flex-col">
+            <div class="flex items-center justify-between px-lg py-md border-b border-outline-variant">
+                <h2 class="font-headline-sm text-headline-sm text-on-surface">Nuevo usuario</h2>
+                <button class="text-on-surface-variant hover:bg-surface-container rounded-full p-1 transition-colors" @onclick="CerrarModal">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <div class="px-lg py-md flex flex-col gap-md">
+                <div>
+                    <label class="font-label-caps text-label-caps text-secondary block mb-xs">Nombre completo</label>
+                    <input class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                           @bind="NuevoNombre" @bind:event="oninput" />
+                </div>
+                <div>
+                    <label class="font-label-caps text-label-caps text-secondary block mb-xs">Correo</label>
+                    <input type="email" class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                           @bind="NuevoEmail" @bind:event="oninput" />
+                </div>
+                <div>
+                    <label class="font-label-caps text-label-caps text-secondary block mb-xs">Contraseña temporal</label>
+                    <input type="text" class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-data-mono text-data-mono text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                           @bind="NuevaPassword" @bind:event="oninput" />
+                    <p class="text-body-sm text-secondary mt-xs">Mínimo 6 caracteres, al menos un número. El usuario podrá cambiarla después.</p>
+                </div>
+                <div>
+                    <label class="font-label-caps text-label-caps text-secondary block mb-xs">Rol</label>
+                    <select class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                            @bind="RolSeleccionado">
+                        @foreach (var rol in DbInitializer.RolesDelSistema)
+                        {
+                            <option value="@rol">@rol</option>
+                        }
+                    </select>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(Error))
+                {
+                    <p class="text-error text-body-sm">@Error</p>
+                }
+            </div>
+            <div class="flex justify-end gap-sm px-lg py-md border-t border-outline-variant">
+                <button type="button" class="px-md py-2 rounded-lg font-body-md text-body-md text-on-surface-variant hover:bg-surface-container transition-colors" @onclick="CerrarModal">
+                    Cancelar
+                </button>
+                <button type="button" class="px-md py-2 bg-primary-container text-on-primary-container rounded-lg font-body-md text-body-md font-semibold hover:opacity-90 shadow-sm transition-opacity"
+                        @onclick="CrearUsuarioAsync">
+                    Crear usuario
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private record UsuarioFila(string Id, string NombreCompleto, string? Email, string Rol, bool Activo);
+
+    private List<UsuarioFila>? ListaUsuarios;
+    private bool MostrarModal = false;
+
+    private string NuevoNombre = string.Empty;
+    private string NuevoEmail = string.Empty;
+    private string NuevaPassword = string.Empty;
+    private string RolSeleccionado = DbInitializer.RolesDelSistema[0];
+    private string? Error;
+        private bool MostrarModalReset = false;
+    private string UsuarioIdReset = string.Empty;
+    private string NombreUsuarioReset = string.Empty;
+    private string PasswordReset = string.Empty;
+    private string? ErrorReset;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarAsync();
+    }
+
+    private async Task CargarAsync()
+    {
+        var usuarios = UserManager.Users.OrderBy(u => u.NombreCompleto).ToList();
+        var filas = new List<UsuarioFila>();
+
+        foreach (var u in usuarios)
+        {
+            var roles = await UserManager.GetRolesAsync(u);
+            filas.Add(new UsuarioFila(u.Id, u.NombreCompleto, u.Email, roles.FirstOrDefault() ?? "—", u.Activo));
+        }
+
+        ListaUsuarios = filas;
+    }
+
+    private void AbrirModalNuevo()
+    {
+        NuevoNombre = string.Empty;
+        NuevoEmail = string.Empty;
+        NuevaPassword = string.Empty;
+        RolSeleccionado = DbInitializer.RolesDelSistema[0];
+        Error = null;
+        MostrarModal = true;
+    }
+
+    private void CerrarModal() => MostrarModal = false;
+
+    private async Task CrearUsuarioAsync()
+    {
+        if (string.IsNullOrWhiteSpace(NuevoNombre) || string.IsNullOrWhiteSpace(NuevoEmail) || string.IsNullOrWhiteSpace(NuevaPassword))
+        {
+            Error = "Todos los campos son obligatorios.";
+            return;
+        }
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var taller = await db.Talleres.OrderBy(t => t.FechaCreacion).FirstOrDefaultAsync();
+        if (taller is null) return;
+
+        var nuevoUsuario = new ApplicationUser
+        {
+            UserName = NuevoEmail,
+            Email = NuevoEmail,
+            EmailConfirmed = true,
+            NombreCompleto = NuevoNombre,
+            TallerId = taller.Id,
+            Activo = true
+        };
+
+        var resultado = await UserManager.CreateAsync(nuevoUsuario, NuevaPassword);
+
+        if (!resultado.Succeeded)
+        {
+            Error = string.Join(" ", resultado.Errors.Select(e => e.Description));
+            return;
+        }
+
+        await UserManager.AddToRoleAsync(nuevoUsuario, RolSeleccionado);
+
+        MostrarModal = false;
+        await CargarAsync();
+    }
+
+    private async Task CambiarEstadoAsync(string userId)
+    {
+        var usuario = await UserManager.FindByIdAsync(userId);
+        if (usuario is null) return;
+
+        usuario.Activo = !usuario.Activo;
+        await UserManager.UpdateAsync(usuario);
+
+        await CargarAsync();
+    }
+
+        private void AbrirModalReset(string userId, string nombre)
+    {
+        UsuarioIdReset = userId;
+        NombreUsuarioReset = nombre;
+        PasswordReset = string.Empty;
+        ErrorReset = null;
+        MostrarModalReset = true;
+    }
+
+    private void CerrarModalReset() => MostrarModalReset = false;
+
+    private async Task RestablecerPasswordAsync()
+    {
+        if (string.IsNullOrWhiteSpace(PasswordReset))
+        {
+            ErrorReset = "Escribe una nueva contraseña.";
+            return;
+        }
+
+        var usuario = await UserManager.FindByIdAsync(UsuarioIdReset);
+        if (usuario is null) return;
+
+        await UserManager.RemovePasswordAsync(usuario);
+        var resultado = await UserManager.AddPasswordAsync(usuario, PasswordReset);
+
+        if (!resultado.Succeeded)
+        {
+            ErrorReset = string.Join(" ", resultado.Errors.Select(e => e.Description));
+            return;
+        }
+
+        MostrarModalReset = false;
+    }
+}

@@ -1,0 +1,29 @@
+﻿@using Microsoft.AspNetCore.Components.Authorization
+@inject NavigationManager Nav
+
+<Router AppAssembly="typeof(Program).Assembly">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+            <NotAuthorized>
+                <div class="flex flex-col items-center justify-center min-h-[60vh] gap-md text-center p-lg">
+                    <span class="material-symbols-outlined text-error text-[48px]">block</span>
+                    <h1 class="font-headline-md text-headline-md text-on-surface">Acceso no autorizado</h1>
+                    <p class="font-body-md text-body-md text-secondary max-w-md">
+                        Tu rol no tiene permiso para ver esta sección. Si crees que es un error, contacta al administrador del sistema.
+                    </p>
+                    <button @onclick="IrAlInicio" class="mt-sm px-md py-2 bg-primary-container text-on-primary-container rounded-lg font-body-md text-body-md font-semibold hover:opacity-90 transition-opacity">
+                        Volver al inicio
+                    </button>
+                </div>
+            </NotAuthorized>
+        </AuthorizeRouteView>
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+</Router>
+
+@code {
+    private void IrAlInicio()
+    {
+        Nav.NavigateTo("/", forceLoad: true);
+    }
+}

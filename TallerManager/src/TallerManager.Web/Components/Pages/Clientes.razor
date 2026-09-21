@@ -1,0 +1,234 @@
+@page "/clientes"
+@attribute [Authorize(Roles = "Administrador,Secretaria")]
+
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.EntityFrameworkCore
+@using TallerManager.Domain.Entities
+@using TallerManager.Infrastructure.Data
+
+@inject IDbContextFactory<TallerManagerDbContext> DbFactory
+
+<PageTitle>Clientes</PageTitle>
+
+<!-- Encabezado de página + toolbar -->
+<div class="flex flex-col md:flex-row md:items-center justify-between mb-xl gap-md">
+    <div>
+        <h1 class="font-display-lg text-display-lg text-on-surface mb-xs">Gestión de Clientes</h1>
+        <p class="font-body-md text-body-md text-secondary">Administre su cartera de clientes y vehículos asociados.</p>
+    </div>
+    <div class="flex flex-wrap items-center gap-md">
+        <div class="relative w-full md:w-64">
+            <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-lg">search</span>
+            <input class="w-full pl-10 pr-4 py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary shadow-sm"
+                   placeholder="Buscar cliente, teléfono o email..."
+                   @bind="SearchTerm" @bind:event="oninput" @bind:after="BuscarAsync" />
+        </div>
+        <button class="flex items-center gap-sm px-md py-2 bg-primary-container text-on-primary-container rounded-lg font-body-md text-body-md font-semibold hover:opacity-90 shadow-sm transition-opacity"
+                @onclick="AbrirModalNuevo">
+            <span class="material-symbols-outlined text-[20px]">add</span>
+            Nuevo Cliente
+        </button>
+    </div>
+</div>
+
+<!-- Tarjeta de tabla -->
+<div class="bg-surface border border-outline-variant rounded-xl shadow-sm overflow-hidden flex flex-col">
+    <div class="overflow-x-auto">
+        @if (ListaClientes is null)
+        {
+            <p class="p-lg text-body-md text-secondary">Cargando...</p>
+        }
+        else if (!ListaClientes.Any())
+        {
+            <p class="p-lg text-body-md text-secondary">No hay clientes registrados todavía.</p>
+        }
+        else
+        {
+            <table class="w-full text-left border-collapse">
+                <thead class="bg-surface-container-low border-b border-outline-variant">
+                    <tr>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary whitespace-nowrap">Cliente</th>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary whitespace-nowrap">Contacto</th>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary whitespace-nowrap">Vehículos</th>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary whitespace-nowrap">Registro</th>
+                        <th class="px-lg py-sm font-label-caps text-label-caps text-secondary whitespace-nowrap">Estado</th>
+                    </tr>
+                </thead>
+                <tbody class="font-body-md text-body-md text-on-surface divide-y divide-outline-variant bg-surface">
+                    @foreach (var cliente in ListaClientes)
+                    {
+                        <tr class="hover:bg-surface-container-lowest transition-colors">
+                            <td class="px-lg py-md">
+                                <div class="flex items-center gap-md">
+                                    <div class="w-10 h-10 rounded-full bg-primary-fixed-dim text-on-primary-container flex items-center justify-center font-headline-sm font-bold flex-shrink-0">
+                                        @Iniciales(cliente.Nombre)
+                                    </div>
+                                    <span class="font-semibold text-on-surface">@cliente.Nombre</span>
+                                </div>
+                            </td>
+                            <td class="px-lg py-md text-on-surface-variant">
+                                <div class="flex flex-col">
+                                    @if (!string.IsNullOrWhiteSpace(cliente.Telefono))
+                                    {
+                                        <span class="font-data-mono text-data-mono">@cliente.Telefono</span>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(cliente.Email))
+                                    {
+                                        <span class="text-body-sm">@cliente.Email</span>
+                                    }
+                                </div>
+                            </td>
+                            <td class="px-lg py-md">
+                                <div class="inline-flex items-center justify-center bg-surface-container px-2 py-1 rounded-md min-w-[28px] font-data-mono text-data-mono text-primary font-semibold">
+                                    @cliente.Vehiculos.Count
+                                </div>
+                            </td>
+                            <td class="px-lg py-md font-data-mono text-data-mono text-on-surface-variant">@cliente.FechaRegistro.ToString("dd MMM yyyy")</td>
+                            <td class="px-lg py-md">
+                                @if (cliente.Activo)
+                                {
+                                    <span class="inline-flex items-center gap-xs px-2 py-1 rounded-full bg-primary-fixed text-primary font-label-caps text-label-caps">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
+                                        ACTIVO
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="inline-flex items-center gap-xs px-2 py-1 rounded-full bg-surface-variant text-on-surface-variant font-label-caps text-label-caps">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-outline"></span>
+                                        INACTIVO
+                                    </span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+</div>
+
+<!-- Modal nuevo cliente -->
+@if (MostrarModal)
+{
+    <div class="fixed inset-0 bg-inverse-surface/50 z-[100] flex items-center justify-center p-md">
+        <div class="bg-surface rounded-xl shadow-lg w-full max-w-md flex flex-col">
+            <div class="flex items-center justify-between px-lg py-md border-b border-outline-variant">
+                <h2 class="font-headline-sm text-headline-sm text-on-surface">Nuevo cliente</h2>
+                <button class="text-on-surface-variant hover:bg-surface-container rounded-full p-1 transition-colors" @onclick="CerrarModal">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <EditForm Model="NewClient" OnValidSubmit="GuardarAsync">
+                <DataAnnotationsValidator />
+                <div class="px-lg py-md flex flex-col gap-md">
+                    <div>
+                        <label class="font-label-caps text-label-caps text-secondary block mb-xs">Nombre completo *</label>
+                        <InputText class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                   @bind-Value="NewClient.Nombre" />
+                        <ValidationMessage For="() => NewClient.Nombre" class="text-error text-body-sm mt-xs block" />
+                    </div>
+                    <div>
+                        <label class="font-label-caps text-label-caps text-secondary block mb-xs">Teléfono</label>
+                        <InputText class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                   @bind-Value="NewClient.Telefono" />
+                    </div>
+                    <div>
+                        <label class="font-label-caps text-label-caps text-secondary block mb-xs">Correo electrónico</label>
+                        <InputText class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                   @bind-Value="NewClient.Email" />
+                    </div>
+                    <div>
+                        <label class="font-label-caps text-label-caps text-secondary block mb-xs">Dirección</label>
+                        <InputText class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                   @bind-Value="NewClient.Direccion" />
+                    </div>
+                    <div>
+                        <label class="font-label-caps text-label-caps text-secondary block mb-xs">Notas</label>
+                        <InputTextArea class="w-full px-md py-2 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                       @bind-Value="NewClient.Notas" />
+                    </div>
+                </div>
+                <div class="flex justify-end gap-sm px-lg py-md border-t border-outline-variant">
+                    <button type="button" class="px-md py-2 rounded-lg font-body-md text-body-md text-on-surface-variant hover:bg-surface-container transition-colors" @onclick="CerrarModal">
+                        Cancelar
+                    </button>
+                    <button type="submit" class="px-md py-2 bg-primary-container text-on-primary-container rounded-lg font-body-md text-body-md font-semibold hover:opacity-90 shadow-sm transition-opacity">
+                        Guardar
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Cliente>? ListaClientes;
+    private string SearchTerm = string.Empty;
+    private bool MostrarModal = false;
+    private Cliente NewClient = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarAsync();
+    }
+
+    private async Task CargarAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        var query = db.Clientes
+            .Include(c => c.Vehiculos)
+            .Where(c => c.Activo)
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(SearchTerm))
+        {
+            var term = SearchTerm.Trim();
+            query = query.Where(c =>
+                c.Nombre.Contains(term) ||
+                (c.Telefono != null && c.Telefono.Contains(term)) ||
+                (c.Email != null && c.Email.Contains(term)));
+        }
+
+        ListaClientes = await query.OrderBy(c => c.Nombre).ToListAsync();
+    }
+
+    private async Task BuscarAsync() => await CargarAsync();
+
+    private void AbrirModalNuevo()
+    {
+        NewClient = new Cliente();
+        MostrarModal = true;
+    }
+
+    private void CerrarModal() => MostrarModal = false;
+
+    private async Task GuardarAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        var taller = await db.Talleres
+            .OrderBy(t => t.FechaCreacion)
+            .FirstOrDefaultAsync();
+
+        if (taller is null) return;
+
+        NewClient.TallerId = taller.Id;
+
+        db.Clientes.Add(NewClient);
+        await db.SaveChangesAsync();
+
+        MostrarModal = false;
+        await CargarAsync();
+    }
+
+    private static string Iniciales(string nombre)
+    {
+        var partes = nombre.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (partes.Length == 0) return "?";
+        if (partes.Length == 1) return partes[0][..Math.Min(2, partes[0].Length)].ToUpper();
+        return $"{partes[0][0]}{partes[^1][0]}".ToUpper();
+    }
+}

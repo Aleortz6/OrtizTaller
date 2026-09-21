@@ -1,0 +1,19 @@
+@using Microsoft.AspNetCore.Components.Routing
+
+<div class="flex gap-md border-b border-outline-variant mb-lg">
+    <NavLink href="configuracion" Match="NavLinkMatch.All"
+             class="px-md py-sm font-body-md text-body-md text-secondary border-b-2 border-transparent hover:text-primary transition-colors"
+             ActiveClass="text-primary border-primary font-semibold">
+        General
+    </NavLink>
+    <NavLink href="usuarios"
+             class="px-md py-sm font-body-md text-body-md text-secondary border-b-2 border-transparent hover:text-primary transition-colors"
+             ActiveClass="text-primary border-primary font-semibold">
+        Usuarios
+    </NavLink>
+    <NavLink href="personal"
+             class="px-md py-sm font-body-md text-body-md text-secondary border-b-2 border-transparent hover:text-primary transition-colors"
+             ActiveClass="text-primary border-primary font-semibold">
+        Personal
+    </NavLink>
+</div>
